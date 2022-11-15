@@ -1,5 +1,6 @@
 from entities import RectangleEntity, CircleEntity, RingEntity
 from geometry import Point
+import numpy as np
 
 # For colors, we use tkinter colors. See http://www.science.smith.edu/dftwiki/index.php/Color_Charts_for_TKinter
 
@@ -11,6 +12,12 @@ class Car(RectangleEntity):
         super(Car, self).__init__(center, heading, size, movable, friction)
         self.color = color
         self.collidable = True
+    
+    @property
+    def front_axle(self):
+        x = self.center.x + np.cos(self.heading)*self.size.x/2.0
+        y = self.center.y + np.sin(self.heading)*self.size.x/2.0
+        return np.array([x, y])
         
 class Pedestrian(CircleEntity):
     def __init__(self, center: Point, heading: float, color: str = 'LightSalmon3'): # after careful consideration, I decided my color is the same as a salmon, so here we go.

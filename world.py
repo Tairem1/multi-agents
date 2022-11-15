@@ -11,6 +11,7 @@ class World:
         self.t = 0 # simulation time
         self.dt = dt # simulation time step
         self.visualizer = Visualizer(width, height, ppm=ppm)
+        self.width_m, self.height_m = width, height
         
     def add(self, entity: Entity):
         if entity.movable:
@@ -26,6 +27,20 @@ class World:
     def render(self):
         self.visualizer.create_window(bg_color = 'gray')
         self.visualizer.update_agents(self.agents)
+        
+    def pop(self, entity: Entity):
+        if entity.movable:
+            try:
+                index = self.dynamic_agents.index(entity)
+                self.dynamic_agents.pop(index)
+            except ValueError:
+                print(f"Agent {entity} is not in dynamic agent list")
+        else:
+            try:
+                index = self.static_agents.index(entity)
+                self.static_agents.pop(index)
+            except ValueError:
+                print(f"Agent {entity} is not in static agent list")
         
     @property
     def agents(self):
