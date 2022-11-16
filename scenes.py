@@ -8,11 +8,13 @@ from world import World
 from agents import Painting, RectangleBuilding, Car, Pedestrian
 from geometry import Point
 import numpy as np
+from traffic_controller import TrafficController
 
 class Scenes(World):
     def __init__(self, dt: float, width: float, height: float, ppm: float = 8):
         super().__init__(dt, width, height, ppm)
         self.scene_name = None
+        self.traffic_controller = None
         self.routes = []
         
     def draw_route(self, route, color='green'):
@@ -57,20 +59,13 @@ class Scenes(World):
             b2_x, b2_y = b4_x, b1_y
             self.add(Painting(Point(b2_x, b2_y), Point(sx, sy), 'gray80'))
             self.add(RectangleBuilding(Point(b2_x, b2_y), Point(bsx, bsy)))
-    
-            # # Let's also add some zebra crossings, because why not.
-            # self.add(Painting(Point(18, 81), Point(0.5, 2), 'white'))
-            # self.add(Painting(Point(19, 81), Point(0.5, 2), 'white'))
-            # self.add(Painting(Point(20, 81), Point(0.5, 2), 'white'))
-            # self.add(Painting(Point(21, 81), Point(0.5, 2), 'white'))
-            # self.add(Painting(Point(22, 81), Point(0.5, 2), 'white'))
             
             #####################
             # DEFINE CAR ROUTES #
             #####################
             N_points = 100
-            r1 = np.linspace([self.width_m, b3_y + sy/2.0 + road2_width/4.0], 
-                             [0, b3_y + sy/2.0 + road2_width/4.0], 
+            r1 = np.linspace([0, b3_y + sy/2.0 + road2_width/4.0], 
+                             [self.width_m, b3_y + sy/2.0 + road2_width/4.0], 
                              N_points)
             r2 = np.linspace([self.width_m, b3_y + sy/2.0 + 3.0*road2_width/4.0], 
                              [0, b3_y + sy/2.0 + 3.0*road2_width/4.0], 
@@ -86,16 +81,7 @@ class Scenes(World):
             self.draw_route(self.routes[1], 'white')
             self.draw_route(self.routes[2], 'red')
             
-            
-            # A Car object is a dynamic object -- it can move. We construct it using its center location and heading angle.
-            self.c1 = Car(Point(20,20), np.pi/2)
-            self.c1.velocity = Point(0.0, 2.0)
-            self.add(self.c1)
-            
-    
-            self.c2 = Car(Point(118,90), np.pi, 'blue')
-            self.c2.velocity = Point(3.0,0) # We can also specify an initial velocity just like this.
-            self.add(self.c2)
+            self.traffic_controller = TrafficController(self, N_cars=10)
     
             # Pedestrian is almost the same as Car. It is a "circle" object rather than a rectangle.
             self.p1 = Pedestrian(Point(28,81), np.pi)
@@ -110,6 +96,10 @@ class Scenes(World):
     def close_scene(self):
         if self.scene_name == "scene01":
             pass
+        
+    def tick(self):
+        self.traffic_controller.tick()
+        super().tick()
 
         
     
