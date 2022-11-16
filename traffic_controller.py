@@ -77,7 +77,7 @@ class CarController:
 """
 The traffic controller should be responsible for:
     XXX - spawning agents on their routes
-    - adding new agents as previous ones disappear
+    XXX adding new agents as previous ones disappear
     - applying control to follow the route
     - avoid collisions with other agents in the scene
 """
@@ -111,8 +111,6 @@ class TrafficController:
                     continue
         print(self.traffic)
         
-        
-        
                     
     def tick(self):
         self.traffic.reset_index()
@@ -132,9 +130,6 @@ class TrafficController:
         for _ in range(N_spawn):
             route_index = np.random.randint(len(self.world.routes))
             self.spawn_car(route_index)
-            
-            
-            
             
             
     def spawn_car(self, route_index, random_point=False):
