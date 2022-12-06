@@ -4,6 +4,7 @@ from typing import Union
 from visualizer import Visualizer
 import json
 
+
 class World:
     def __init__(self, dt: float, width: float, height: float, ppm: float = 8):
         self.dynamic_agents = []
@@ -11,6 +12,7 @@ class World:
         self.t = 0 # simulation time
         self.dt = dt # simulation time step
         self.visualizer = Visualizer(width, height, ppm=ppm)
+        
         self.width_m, self.height_m = width, height
         
     def add(self, entity: Entity):
@@ -75,4 +77,6 @@ class World:
     def reset(self):
         self.dynamic_agents = []
         self.t = 0
+        
+        
             

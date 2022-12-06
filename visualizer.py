@@ -1,6 +1,7 @@
 from graphics import *
 from entities import RectangleEntity, CircleEntity, RingEntity
 
+
 class Visualizer:
     def __init__(self, width: float, height: float, ppm: int):
         # width (meters)
@@ -19,6 +20,7 @@ class Visualizer:
             self.win.setBackground(bg_color)
             self.window_created = True
             self.visualized_imgs = []
+    
             
     def update_agents(self, agents: list):
         new_visualized_imgs = []
