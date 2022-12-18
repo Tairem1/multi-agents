@@ -17,6 +17,11 @@ class Scenes(World):
         self.traffic_controller = None
         self.routes = []
         
+        print('*'*50)
+        print("Available commands: ")
+        print("\t- Right click: display traffic status")
+        print('*'*50)
+        
     def draw_route(self, route, color='green'):
         for i in range(len(route)):
             self.add(Painting(Point(route[i, 0], route[i, 1]), Point(0.5, 0.5), color))
@@ -74,6 +79,7 @@ class Scenes(World):
                              [b3_x + sx/2.0 + road1_width/2.0, self.height_m], 
                              N_points)
             
+            
             # Create route 4 connecting route 3 to 1
             r31 = 5.0
             cx = b3_x + sx/2.0 + road1_width/2.0 + r31
@@ -121,6 +127,7 @@ class Scenes(World):
             self.routes.append(r3)
             self.routes.append(r4)
             self.routes.append(r5)
+            self.non_ego_routes = [0, 1]
             
             self.draw_route(self.routes[0], 'green')
             self.draw_route(self.routes[1], 'white')
@@ -148,11 +155,15 @@ class Scenes(World):
         self.traffic_controller.tick()
         super().tick()
         
+    def tick_on_click(self, event):
+        self.tick()
+        
     def print_traffic(self, event):
-        print(self.traffic_controller.traffic[['id', 'route', 'waypoint']])
+        print(self.traffic_controller.traffic[['id', 'route', 'waypoint', 'front_vehicle']])
         
     def render(self):
         super().render()
         self.visualizer.win.bind("<Button-3>", self.print_traffic)
+        self.visualizer.win.bind("<Button-1>", self.tick_on_click)
         
     

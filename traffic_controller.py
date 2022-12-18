@@ -15,11 +15,63 @@ def computeAngleDifference(a1, a2):
     a2 = np.mod(a2, 2*np.pi)
     return np.mod((a1 - a2) - np.pi, 2*np.pi) - np.pi
 
+class Proportional:
+    def __init__(self, vehicle, k=2.0):
+        self.k = k        
+        self.desired_speed = max(np.random.normal(5.0, 1.0), 1.0)
+        self.vehicle = vehicle
+        
+    def __call__(self, x):
+        control = self.k*(self.desired_speed - self.vehicle.speed)
+        return control
+    
+    
+class IntelligentDriverModel:
+    def __init__(self, vehicle):
+        self.desired_speed = np.random.uniform(2.0, 8.0)
+        self.minimum_spacing = 4.0
+        self.desired_time_headway = np.random.uniform(2.0, 6.0)
+        self.max_acceleration = np.random.uniform(3.0, 5.0)
+        self.comfortable_braking_deceleration = np.random.uniform(3.0, 5.0)
+        self.delta = 4.0
+        self.vehicle = vehicle
+        
+    def __call__(self, front_vehicle):
+        vehicle_position = np.array([self.vehicle.center.x, 
+                                     self.vehicle.center.y])
+        
+        if front_vehicle is not None:
+            front_vehicle_position = np.array([front_vehicle.center.x, 
+                                         front_vehicle.center.y])
+            s_alpha = np.linalg.norm(front_vehicle_position - vehicle_position) \
+                                    - self.vehicle.size.x
+            s0 = self.minimum_spacing
+            v_alpha = self.vehicle.speed
+            d_v_alpha = self.vehicle.speed - front_vehicle.speed
+            s_star = s0 + v_alpha * self.desired_time_headway \
+                + v_alpha * d_v_alpha / (2*np.sqrt(self.max_acceleration \
+                                    * self.comfortable_braking_deceleration))
+             
+            # print(f"s_alpha: {s_alpha}")
+            # print(f"s0: {s0}, v_alpha {v_alpha}, d_v_alpha: {d_v_alpha}")
+            # print(f"s_star: {s_star}, t1: {v_alpha * self.desired_time_headway}, t2: {v_alpha * d_v_alpha / (2*np.sqrt(self.max_acceleration  * self.comfortable_braking_deceleration))}")
+                    
+            a_other = - (s_star / s_alpha)**2
+        else:
+            a_other = 0.0
+        
+        a_self = (1.0 - (self.vehicle.speed / self.desired_speed)**self.delta)
+        return self.max_acceleration * (a_other + a_self)
+            
+
+
 class CarController:
-    def __init__(self, route, desired_speed, vehicle, 
-                 initial_waypoint=0):
+    def __init__(self, route, 
+                 vehicle, 
+                 initial_waypoint=0,
+                 acceleration_controller='Proportional'):
         self.route = route                  # The route we want to follow
-        self.desired_speed = desired_speed  # The car desired speed
+        
         self.vehicle = vehicle              # the vehicle we are controlling
         self.current_waypoint_index = initial_waypoint
         
@@ -27,6 +79,13 @@ class CarController:
         self._acceleration = 0.0
         
         
+        if acceleration_controller == 'Proportional':
+            self.acceleration_controller = Proportional(self.vehicle)
+        elif acceleration_controller == 'IDM':
+            self.acceleration_controller = IntelligentDriverModel(self.vehicle)
+        else:
+            raise Exception(f'Unexpected acceleration controller: {self.accelerationController}')
+    
     def update_waypoint(self):
         # Returns False if the route is over, True otherwise
         vehicle_position = np.array([self.vehicle.center.x, 
@@ -43,10 +102,9 @@ class CarController:
         else:
             return True
         
-    def stanely_controller(self):
+    def stanely_controller(self, front_vehicle=None):
         if self.update_waypoint():
             kv = 1.0
-            ka = 2.0
             
             # Returnwos desired acceleration and steering
             front_axle = self.vehicle.front_axle
@@ -67,12 +125,13 @@ class CarController:
                 ld = max(self.vehicle.speed / kv, 1.0)
                 
                 self._steering = -(theta_p + np.arctan(df / ld))
-                self._acceleration = ka*(self.desired_speed - self.vehicle.speed)
+                self._acceleration = self.acceleration_controller(front_vehicle)
             end_of_route = False
         else:
             end_of_route = True
         
         return self._steering, self._acceleration, end_of_route
+    
     
     
 """
@@ -104,7 +163,7 @@ class TrafficController:
         self.traffic = pd.DataFrame(columns=['id', 'route', 'vehicle', 'controller'])
         
         for _ in range(N_cars):
-            route_index = np.random.randint(len(self.world.routes))
+            route_index = np.random.choice(self.world.non_ego_routes)
             for _ in range(300):
                 if self.spawn_car(route_index, random_point=True):
                     break
@@ -114,10 +173,8 @@ class TrafficController:
         
                     
     def tick(self):
-        self.traffic.reset_index()
-        
         for index, row in self.traffic.iterrows():
-            steering, acceleration, end_of_route = row['controller'].stanely_controller()
+            steering, acceleration, end_of_route = row['controller'].stanely_controller(row['front_vehicle'])
             self.traffic.loc[index, 'vehicle'].set_control(steering, acceleration)
             self.traffic.loc[index, 'waypoint'] = int(row['controller'].current_waypoint_index)
             
@@ -127,12 +184,16 @@ class TrafficController:
                 
                 # And delete the associated traffic entry
                 self.traffic.drop(index, inplace=True) 
+        
 
         # Respawn agents if they disappeared   
         N_spawn = self.N_cars - len(self.traffic)
         for _ in range(N_spawn):
-            route_index = np.random.randint(len(self.world.routes))
+            route_index = np.random.choice(self.world.non_ego_routes)
             self.spawn_car(route_index)
+            
+        self.traffic.reset_index()
+        self.update_front_vehicles()
             
             
     def spawn_car(self, route_index, random_point=False):
@@ -145,19 +206,23 @@ class TrafficController:
         
         forward_vector = route[i+1] - route[i]
         heading = np.arctan2(forward_vector[1], forward_vector[0]) % (2*np.pi)
+        initial_velocity = np.random.uniform(3.0, 5.0) * np.array([
+            np.cos(heading), np.sin(heading)])
         
-        car = Car(Point(x, y), heading)
+        car = Car(Point(x, y), heading, 
+                  velocity=Point(initial_velocity[0], initial_velocity[1]))
         
         if not self.world.collision_exists(car):
             self.world.add(car)
-            desired_speed = max(np.random.normal(5.0, 1.0), 1.0)
-            controller = CarController(route, desired_speed, 
-                                       car, initial_waypoint=i)
+            controller = CarController(route, car, 
+                                       initial_waypoint=i,
+                                       acceleration_controller='IDM')
             traffic_agent = {   'id': [self.car_counter],
                                 'route': [route_index],
                                 'vehicle': [car],
                                 'controller': [controller],
-                                'waypoint': [0]}
+                                'waypoint': [0],
+                                'front_vehicle': [None]}
             da = pd.DataFrame(traffic_agent)
             
             # Add agent to the traffic list
@@ -169,6 +234,18 @@ class TrafficController:
             print("Tried to spawn car agent but collision existed")
             return False
         
+    def update_front_vehicles(self, max_range=100.0):
+        for index, row in self.traffic.iterrows():
+            df = self.traffic[(self.traffic['route'] == row['route']) & 
+                              (self.traffic['waypoint'] >= row['waypoint']) &
+                              (self.traffic['id'] != row['id'])].sort_values('waypoint')
+            
+            if len(df) >= 1:
+                self.traffic.loc[index, 'front_vehicle'] = df.iloc[0]['vehicle']
+            else:
+                self.traffic.loc[index, 'front_vehicle'] = None
+            
+                
         
         
         

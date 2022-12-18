@@ -21,7 +21,7 @@ dt = 0.1 # time steps in terms of seconds. In other words, 1/dt is the FPS.
 world = Scenes(dt, width = 120, height = 120, ppm = 5) # The world is 120 meters by 120 meters. ppm is the pixels per meter.
 
 world.load_scene("scene01")
-world.render()
+# world.render()
 
 if not human_controller:
     # Let's implement some simple scenario with all agents
@@ -30,10 +30,6 @@ if not human_controller:
         world.tick() # This ticks the world for one time step (dt second)
         world.render()
         time.sleep(dt/4) # Let's watch it 4x
-        
-        for event in pygame.event.get():
-            if event.type == pygame.KEYDOWN:
-                print(f"Pressed key: {event.key}")
         
         # if world.collision_exists(): # Or we can check if there is any collision at all.
         #     print('Collision exists somewhere...')

@@ -5,7 +5,8 @@ import copy
 
 
 class Entity:
-    def __init__(self, center: Point, heading: float, movable: bool = True, friction: float = 0):
+    def __init__(self, center: Point, heading: float, movable: bool = True, friction: float = 0,
+                 velocity = Point(0,0)):
         self.center = center # this is x, y
         self.heading = heading
         self.movable = movable
@@ -13,7 +14,7 @@ class Entity:
         self.collidable = True
         if movable:
             self.friction = friction
-            self.velocity = Point(0,0) # this is xp, yp
+            self.velocity = velocity# this is xp, yp
             self.acceleration = 0 # this is vp (or speedp)
             self.angular_velocity = 0 # this is headingp
             self.inputSteering = 0
@@ -125,8 +126,8 @@ class Entity:
         return self.velocity.y
     
 class RectangleEntity(Entity):
-    def __init__(self, center: Point, heading: float, size: Point, movable: bool = True, friction: float = 0):
-        super(RectangleEntity, self).__init__(center, heading, movable, friction)
+    def __init__(self, center: Point, heading: float, size: Point, movable: bool = True, friction: float = 0, velocity=Point(0,0)):
+        super(RectangleEntity, self).__init__(center, heading, movable, friction, velocity)
         self.size = size
         self.buildGeometry()
     
