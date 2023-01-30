@@ -5,13 +5,24 @@ import numpy as np
 # For colors, we use tkinter colors. See http://www.science.smith.edu/dftwiki/index.php/Color_Charts_for_TKinter
 
 class Car(RectangleEntity):
-    def __init__(self, center: Point, heading: float, color: str = 'red', velocity=Point(0,0)):
+    car_counter = 0
+    
+    def __init__(self, center: Point, 
+                 heading: float, 
+                 color: str = 'red', 
+                 velocity=Point(0,0),
+                 is_ego_vehicle=False):
         size = Point(4., 2.)
         movable = True
         friction = 0.06
         super(Car, self).__init__(center, heading, size, movable, friction, velocity)
         self.color = color
         self.collidable = True
+        if not is_ego_vehicle:
+            self.id = Car.car_counter
+            Car.car_counter += 1
+        else:
+            self.id = -1
     
     @property
     def front_axle(self):

@@ -159,7 +159,7 @@ class Scenes(World):
         self.tick()
         
     def print_traffic(self, event):
-        print(self.traffic_controller.traffic[['id', 'route', 'waypoint', 'front_vehicle']])
+        print(self.traffic_controller.traffic[['id', 'route', 'waypoint', 'front_vehicle_id']])
         
     def render(self):
         super().render()

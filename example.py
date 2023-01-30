@@ -27,9 +27,9 @@ if not human_controller:
     # Let's implement some simple scenario with all agents
     start = time.time()
     while True:
-        world.tick() # This ticks the world for one time step (dt second)
+        # world.tick() # This ticks the world for one time step (dt second)
         world.render()
-        time.sleep(dt/4) # Let's watch it 4x
+        # time.sleep(dt/4) # Let's watch it 4x
         
         # if world.collision_exists(): # Or we can check if there is any collision at all.
         #     print('Collision exists somewhere...')

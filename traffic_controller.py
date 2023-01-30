@@ -158,7 +158,6 @@ class TrafficController:
 
         """
         self.world = world
-        self.car_counter = 0
         self.N_cars = N_cars
         self.traffic = pd.DataFrame(columns=['id', 'route', 'vehicle', 'controller'])
         
@@ -192,6 +191,17 @@ class TrafficController:
             route_index = np.random.choice(self.world.non_ego_routes)
             self.spawn_car(route_index)
             
+        # Update ego_vehicle route
+        ego_vehicle = self.traffic[self.traffic['id'] == -1].iloc[0]['vehicle']
+        y = ego_vehicle.center.y
+        if np.abs(y - self.world.routes[0]) < 0.50:
+            self.traffic[self.traffic['id'] == -1]['route'] = 0
+        elif np.abs(y - self.world.routes[1]) < 0.50:
+            self.traffic[self.traffic['id'] == -1]['route'] = 0
+        else:
+            self.traffic[self.traffic['id'] == -1]['route'] = None
+        ######################################################################
+            
         self.traffic.reset_index()
         self.update_front_vehicles()
             
@@ -217,24 +227,45 @@ class TrafficController:
             controller = CarController(route, car, 
                                        initial_waypoint=i,
                                        acceleration_controller='IDM')
-            traffic_agent = {   'id': [self.car_counter],
+            traffic_agent = {   'id': [car.id],
                                 'route': [route_index],
                                 'vehicle': [car],
                                 'controller': [controller],
                                 'waypoint': [0],
-                                'front_vehicle': [None]}
+                                'front_vehicle': [None],
+                                'front_vehicle_id': [None]}
             da = pd.DataFrame(traffic_agent)
             
             # Add agent to the traffic list
             self.traffic = pd.concat((self.traffic, da),
                                      ignore_index=True)
-            self.car_counter += 1
             return True
         else:
             print("Tried to spawn car agent but collision existed")
             return False
         
-    def update_front_vehicles(self, max_range=100.0):
+    
+    def add_ego_vehicle(self, ego_vehicle, ego_route=-1):
+        if not self.world.collision_exists(ego_vehicle):
+            traffic_agent = {
+                    'id': [ego_vehicle.id],
+                    'route': [ego_route],
+                    'vehicle': [ego_vehicle],
+                    'controller': [None],
+                    'waypoint': [None],
+                    'front_vehicle': [None],
+                    'front_vehicle_id': [None]
+                }
+            da = pd.DataFrame(traffic_agent)
+            
+            # Add agent to the traffic list
+            self.traffic = pd.concat((self.traffic, da),
+                                     ignore_index=True)
+        else:
+            raise Exception("Tried to spawn car agent but collision existed")
+    
+        
+    def update_front_vehicles(self, max_range=30):
         for index, row in self.traffic.iterrows():
             df = self.traffic[(self.traffic['route'] == row['route']) & 
                               (self.traffic['waypoint'] >= row['waypoint']) &
@@ -242,9 +273,10 @@ class TrafficController:
             
             if len(df) >= 1:
                 self.traffic.loc[index, 'front_vehicle'] = df.iloc[0]['vehicle']
+                self.traffic.loc[index, 'front_vehicle_id'] = self.traffic.loc[index, 'front_vehicle'].id
             else:
                 self.traffic.loc[index, 'front_vehicle'] = None
-            
+                self.traffic.loc[index, 'front_vehicle_id'] = None
                 
         
         
