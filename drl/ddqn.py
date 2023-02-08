@@ -47,7 +47,8 @@ class DDQN:
         
     def learn(self, 
               N_iter=int(100_000),
-              log = True):
+              log = True,
+              callback_fn = None):
         # Perform initial training setup
         self._setup_train()
         
@@ -67,8 +68,7 @@ class DDQN:
             # Reset environment if episode is finished
             if done:
                 if log:
-                    print(info)
-                    print(f"Episode reward: {self.env.episode_reward}")
+                    print(f"Episode reward: {self.env.episode_reward}, {info['end_reason']}")
                 state = self._start_new_episode()
                 self.epoch_reward += self.env.episode_reward
                 

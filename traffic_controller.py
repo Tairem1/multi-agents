@@ -273,7 +273,6 @@ class TrafficController:
                                      ignore_index=True)
             return True
         else:
-            print("Tried to spawn car agent but collision existed")
             return False
         
     
