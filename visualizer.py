@@ -14,6 +14,7 @@ class Visualizer:
         self.visualized_imgs = []
         
         
+        
     def create_window(self, bg_color: str = 'gray80'):
         if not self.window_created or self.win.isClosed():
             self.win = GraphWin('CARLO', self.display_width, self.display_height)

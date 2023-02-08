@@ -69,14 +69,10 @@ class World:
         return False
     
     def close(self):
-        self.reset()
+        self.dynamic_agents = []
+        self.t = 0
         self.static_agents = []
         if self.visualizer.window_created:
             self.visualizer.close()
-        
-    def reset(self):
-        self.dynamic_agents = []
-        self.t = 0
-        
         
             
