@@ -49,6 +49,7 @@ class DDQN:
               total_timesteps,
               log = True,
               epoch_callback = None,
+              checkpoint_callback = None,
               episode_callback = None):
         # Perform initial training setup
         self._setup_train()
@@ -60,6 +61,7 @@ class DDQN:
         
         # Training main loop
         for count in range(total_timesteps):
+            checkpoint_callback(self.policy)
             
             # Update e-greedy value
             self._update_epsilon()     
@@ -126,7 +128,7 @@ class DDQN:
         print(f"\tTRAIN: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}")
     
     def _episode_print(self, info):                    
-        print(f"Episode reward: {self.env.episode_reward}, {info['end_reason']}")
+        print(f"\tTRAIN: Episode reward: {self.env.episode_reward}, {info['end_reason']}")
 
     def _end_of_epoch(self):
         return (self._episode_count % self.episodes_per_epoch) == 0

@@ -39,11 +39,29 @@ class EpochCallback:
         self.metrics['epoch_reward'].append(epoch_reward)
         wandb.log({'epoch_reward': self.metrics['epoch_reward'][-1]})
         
-        if epoch_reward > self.constant_metrics['min_epoch_reward']:
+        if epoch_reward > self.constant_metrics['max_epoch_reward']:
             self.constant_metrics['epoch_number'] = epoch_count
             self.constant_metrics['max_epoch_reward'] = epoch_reward
-            torch.save(model.state_dict(), checkpoint_dir + "reward_best.pth")
+            torch.save(model.state_dict(), 
+                       os.path.join(checkpoint_dir, "reward_best.pth"))
             
+class CheckpointCallback:
+    def __init__(self, checkpoint_dir, save_every):
+        self.checkpoint_dir = checkpoint_dir
+        self._n_calls = 0
+        self._save_every = save_every
+        assert(self._save_every > 100)
+        
+    def __call__(self, model):
+        self._n_calls += 1
+        if (self._n_calls % self._save_every) == 0:
+            torch.save(model.state_dict(), 
+                       os.path.join(self.checkpoint_dir, self.next_model_name))   
+    @property
+    def next_model_name(self):
+        return f"model_{self._n_calls}.pth"  
+
+        
     
 def parse():
     parser = argparse.ArgumentParser()
@@ -68,9 +86,12 @@ def parse():
     args = parser.parse_args()
     return args
 
+
+
 def wandb_init():
     wandb.init(project="GCN-DRL", group=args.group_name, job_type="train")
     wandb.config.update(args)
+    
     
 def create_checkpoint_directory():
     if not os.path.isdir("./checkpoint/"):
@@ -110,28 +131,29 @@ if __name__ == "__main__":
     print('*'*30)
     print("Training initiating....")
     print(args)
+    print()
     
     
     agent = GCNPolicy(num_node_features, action_size)
     model = DDQN(world, 
-                 agent, 
-                 learning_rate=args.learning_rate,
-                 gamma=args.gamma,
-                 batch_size=args.batch_size,
-                 episodes_per_epoch=100)
+                  agent, 
+                  learning_rate=args.learning_rate,
+                  gamma=args.gamma,
+                  batch_size=args.batch_size,
+                  episodes_per_epoch=2)
     
-    wandb.watch(agent, log="all", log_freq=100)
+    # wandb.watch(agent, log="all", log_freq=100)
 
     checkpoint_dir = create_checkpoint_directory()
     print(f'Saving data to: {checkpoint_dir}')
-    
-    
     save_args(checkpoint_dir, args)
     
     epoch_callback = EpochCallback(checkpoint_dir)
+    checkpoint_callback = CheckpointCallback(checkpoint_dir, 200)
     model.learn(total_timesteps=args.total_timesteps, 
                 log=args.log, 
-                epoch_callback=epoch_callback)
+                epoch_callback=epoch_callback,
+                checkpoint_callback=checkpoint_callback)
     
     
     with open(checkpoint_dir+'metrics.pkl', 'wb') as fp:
