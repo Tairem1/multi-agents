@@ -100,7 +100,7 @@ def create_checkpoint_directory():
         checkpoint_dir = f"./checkpoint/{args.tag}_{i:03d}/"
         if not os.path.isdir(checkpoint_dir):
             os.mkdir(checkpoint_dir)
-        return checkpoint_dir
+            return checkpoint_dir
     raise Exception("Unable to create checkpoint directory.")
     
 def save_args(checkpoint_dir, args): 
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     num_node_features = 4
     action_size = 3
         
-    dt = 0.1 # time steps in terms of seconds. In other words, 1/dt is the FPS.
+    dt = 0.2 # time steps in terms of seconds. In other words, 1/dt is the FPS.
     
     # The world is 120 meters by 120 meters. ppm is the pixels per meter.
     world = Scene(dt, 
@@ -133,14 +133,15 @@ if __name__ == "__main__":
     print(args)
     print()
     
-    
-    agent = GCNPolicy(num_node_features, action_size)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    agent = GCNPolicy(num_node_features, action_size).to(device)
     model = DDQN(world, 
                   agent, 
+                  device,
                   learning_rate=args.learning_rate,
                   gamma=args.gamma,
                   batch_size=args.batch_size,
-                  episodes_per_epoch=2)
+                  episodes_per_epoch=20)
     
     # wandb.watch(agent, log="all", log_freq=100)
 
@@ -149,12 +150,11 @@ if __name__ == "__main__":
     save_args(checkpoint_dir, args)
     
     epoch_callback = EpochCallback(checkpoint_dir)
-    checkpoint_callback = CheckpointCallback(checkpoint_dir, 200)
+    checkpoint_callback = CheckpointCallback(checkpoint_dir, save_every=20_000)
     model.learn(total_timesteps=args.total_timesteps, 
                 log=args.log, 
                 epoch_callback=epoch_callback,
                 checkpoint_callback=checkpoint_callback)
-    
     
     with open(checkpoint_dir+'metrics.pkl', 'wb') as fp:
         pickle.dump(epoch_callback.metrics, fp)

@@ -12,10 +12,12 @@ from collections import deque
 import copy
 import torch
 
+
 class DDQN:
     def __init__(self, 
                  env,
                  policy,
+                 device='cpu',
                  replay_buffer_size=20_000,
                  gamma = 0.95,
                  learning_rate = 1e-03,
@@ -44,6 +46,7 @@ class DDQN:
         # Deep learning parameters
         self.optimizer = torch.optim.Adam(self.policy.parameters(),
                                           lr=self.learning_rate)
+        self._device = device
         
     def learn(self, 
               total_timesteps,
@@ -61,15 +64,27 @@ class DDQN:
         
         # Training main loop
         for count in range(total_timesteps):
+            # t.start()
             checkpoint_callback(self.policy)
+            # t.stop("checkpoint_callback")
             
             # Update e-greedy value
-            self._update_epsilon()     
+            # t.start()
+            self._update_epsilon()   
+            # t.stop("update_epsilon")  
             
             # Gather and store new transition in replay buffer
+            # t.start()
             action = self._eps_greedy_action_selection(state)
-            new_state, reward, done, info = self.env.step(action)
+            # t.stop("eps_greedy_action")  
+            
+            # t.start()
+            new_state, reward, done, info = self._step(action)
+            # t.stop("step")  
+            
+            # t.start()
             self._add_experience(state, action, reward, new_state, done)
+            # t.stop("add_experience")  
             
             if done:
                 self._cumulative_epoch_reward += self.env.episode_reward
@@ -83,7 +98,7 @@ class DDQN:
                     # End of epoch
                     epoch_count += 1
                     avg_epoch_reward = self._cumulative_epoch_reward/self.episodes_per_epoch
-                    self._epoch_print(avg_epoch_reward) if log else None
+                    self._epoch_print(avg_epoch_reward) 
                     
                     if epoch_callback is not None:
                         epoch_callback(avg_epoch_reward, 
@@ -95,7 +110,10 @@ class DDQN:
                 state = self._start_new_episode()
                 
             # Update weights
+            
+            # t.start()
             self._update_network_weights(count)
+            # t.stop("update_weights")
                     
                     
                     
@@ -140,7 +158,7 @@ class DDQN:
     def _start_new_episode(self):
         self._episode_count += 1
         self._episode_reward = 0.0
-        return self.env.reset()
+        return self.env.reset().to(self._device)
     
     def _start_new_epoch(self):
         self._episode_count = 0
@@ -158,6 +176,11 @@ class DDQN:
         L /= len(minibatch)
         return L
     
+    
+    def _step(self, action):
+        new_state, reward, done, info = self.env.step(action)
+        return new_state.to(self._device), torch.tensor(reward, device=self._device), done, info
+        
     def _update_network_weights(self, count):
         if len(self._memory) > self.start_learn: 
             # LEARN PHASE
