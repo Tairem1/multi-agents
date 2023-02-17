@@ -11,7 +11,10 @@ from collections import deque
 
 import copy
 import torch
+from torch_geometric.data import Data
 
+# from timer import Timer
+# t = Timer()
 
 class DDQN:
     def __init__(self, 
@@ -21,21 +24,22 @@ class DDQN:
                  replay_buffer_size=20_000,
                  gamma = 0.95,
                  learning_rate = 1e-03,
+                 eps_start = 0.9,
                  eps_min = 0.01,
                  eps_decay = 0.99,
                  start_learn=100,
                  batch_size=16,
-                 episodes_per_epoch = 100,
-                 network_update_frequency=1_000):
+                 episodes_per_epoch = 5,
+                 network_update_frequency=100):
         self._memory = deque(maxlen=replay_buffer_size)
         self.gamma = gamma
-        self.epsilon = 1.0
+        self.epsilon_start = eps_start
         self.epsilon_min = eps_min
         self.epsilon_decay = eps_decay
         self.learning_rate = learning_rate
         self.episodes_per_epoch = episodes_per_epoch
-        self.start_learn = start_learn
         self.batch_size = batch_size
+        self.start_learn = max(start_learn, batch_size)
         self.network_update_frequency = network_update_frequency
         
         # Create network and target network
@@ -48,6 +52,7 @@ class DDQN:
                                           lr=self.learning_rate)
         self._device = device
         
+        
     def learn(self, 
               total_timesteps,
               log = True,
@@ -59,38 +64,29 @@ class DDQN:
         
         # Start new epoch and first episode
         epoch_count = 0
+        episode_reward = 0.0
         self._start_new_epoch()
-        state = self._start_new_episode()
+        state, _ = self._start_new_episode()
         
         # Training main loop
         for count in range(total_timesteps):
-            # t.start()
-            checkpoint_callback(self.policy)
-            # t.stop("checkpoint_callback")
+            if checkpoint_callback is not None:
+                checkpoint_callback(self.policy)
             
             # Update e-greedy value
-            # t.start()
-            self._update_epsilon()   
-            # t.stop("update_epsilon")  
+            self._update_epsilon(count)   
             
             # Gather and store new transition in replay buffer
-            # t.start()
             action = self._eps_greedy_action_selection(state)
-            # t.stop("eps_greedy_action")  
-            
-            # t.start()
-            new_state, reward, done, info = self._step(action)
-            # t.stop("step")  
-            
-            # t.start()
+            new_state, reward, done, truncated, info = self._step(action)
             self._add_experience(state, action, reward, new_state, done)
-            # t.stop("add_experience")  
+            state = new_state
+            episode_reward += reward
             
-            if done:
-                self._cumulative_epoch_reward += self.env.episode_reward
-                self._episode_print(info) if log else None
+            if done:    # End of episode
+                self._cumulative_epoch_reward += episode_reward
+                self._episode_print(episode_reward, info) if log else None
                 
-                # End of episode
                 if episode_callback is not None:
                     episode_callback()
                 
@@ -107,13 +103,13 @@ class DDQN:
                         
                     self._start_new_epoch()
                     
-                state = self._start_new_episode()
+                state, _ = self._start_new_episode()
+                episode_reward = 0.0
                 
             # Update weights
-            
-            # t.start()
             self._update_network_weights(count)
-            # t.stop("update_weights")
+        
+        self.env.close()
                     
                     
                     
@@ -137,16 +133,19 @@ class DDQN:
                 action = int(torch.argmax(self.policy(current_state)))
         return action
                 
-    def _update_epsilon(self):
+    def _update_epsilon(self, count):
         # Update epsilon in epsilon-greedy exploration
-        self.epsilon *= self.epsilon_decay
-        self.epsilon = max(self.epsilon, self.epsilon_min)
+        self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * \
+            np.exp(-1. * count / self.epsilon_decay)
+        
+        # self.epsilon *= self.epsilon_decay
+        # self.epsilon = max(self.epsilon, self.epsilon_min)
         
     def _epoch_print(self, avg_epoch_reward):                    
         print(f"\tTRAIN: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}")
     
-    def _episode_print(self, info):                    
-        print(f"\tTRAIN: Episode reward: {self.env.episode_reward}, {info['end_reason']}")
+    def _episode_print(self, episode_reward, info):                    
+        print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, {self.epsilon}")
 
     def _end_of_epoch(self):
         return (self._episode_count % self.episodes_per_epoch) == 0
@@ -158,7 +157,16 @@ class DDQN:
     def _start_new_episode(self):
         self._episode_count += 1
         self._episode_reward = 0.0
-        return self.env.reset().to(self._device)
+        state, info = self.env.reset()
+        
+        if isinstance(state, np.ndarray):
+            state = torch.tensor(state).to(self._device)
+        elif isinstance(state, Data):
+            state = state.to(self._device)
+        else:
+            raise Exception("Unexpected state type")
+        
+        return state, info
     
     def _start_new_epoch(self):
         self._episode_count = 0
@@ -167,19 +175,34 @@ class DDQN:
     def _q_loss(self, minibatch):
         # Compute loss                
         L = 0.0
+        c = 0
         for s, a, r, s_new, done in minibatch:
             if done:
-                y = r
+                y = torch.tensor(r, device=self._device)
             else:
-                y = r + self.gamma * torch.argmax(self.target_policy(s_new))
+                action = torch.argmax(self.target_policy(s_new))
+                q_hat = self.policy(s_new)[action]
+                y = torch.tensor(r, device=self._device) + self.gamma * q_hat
+                
+                if c == 0:
+                    print("states: ", s, s_new)
+                    print("q_hat(s_new): ", self.target_policy(s_new))
+                    print("max_axtion: ", action)
+                    print("q(s_new) ", self.policy(s_new))
+                    print("q(s_new, max_action) ", q_hat)
+                    print("r: ", r)
+                    print("current value: ", self.policy(s)[a], "dqn target: ", y)
+                    c+=1
+                    
             L += (self.policy(s)[a] - y)**2
         L /= len(minibatch)
         return L
     
-    
     def _step(self, action):
-        new_state, reward, done, info = self.env.step(action)
-        return new_state.to(self._device), torch.tensor(reward, device=self._device), done, info
+        new_state, reward, done, truncated, info = self.env.step(action)
+        if isinstance(new_state, np.ndarray):
+            new_state = torch.tensor(new_state, device=self._device)
+        return new_state.to(self._device), reward, done, truncated, info
         
     def _update_network_weights(self, count):
         if len(self._memory) > self.start_learn: 
@@ -187,9 +210,17 @@ class DDQN:
             self.optimizer.zero_grad()
             minibatch = random.sample(self._memory, self.batch_size)
             
+            with torch.no_grad():
+                print("before update: ", self.policy(minibatch[0][0]))
+            
             loss = self._q_loss(minibatch)
             loss.backward()
             self.optimizer.step()
+            
+            with torch.no_grad():
+                print("after update: ", self.policy(minibatch[0][0]))
+                print()
+                print()
             
             # Update target network
             if count % self.network_update_frequency == 0:

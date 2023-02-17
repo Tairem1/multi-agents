@@ -18,7 +18,7 @@ import networkx as nx
 
 from traffic_controller import CarController
 
-from debug_utils.timer import Timer
+from timer import Timer
 
 t = Timer()
 
@@ -311,73 +311,50 @@ class Scene(World):
     def _test_reward_fn(self):
         info = {'end_reason': None}
         
-        t.start()
         goal_reached = self._goal_reached()
-        t.stop("goal_reached")
-        
-        t.start()
         collision = self.collision_exists(self.ego_vehicle)
-        t.stop("collision")
         
         if self.t > 40.0:
             done = True
-            reward = -2.0
+            reward = -0.25
             info['end_reason'] = 'timeout'
         elif goal_reached:
             done = True
-            reward = 5.0
+            reward = 1.0
             info['end_reason'] = 'goal_reached'
         elif collision:
             done = True
-            reward = -2.0
+            reward = -1.0
             info['end_reason'] = 'collision_found'
         else:
-            reward = 0.0
+            reward = -self.dt/10.0
             done = False
             info['end_reason'] = None
         return reward, done, info
       
-        
     def reset(self):
-        # super().reset()
         self.t = 0
         self.dynamic_agents = []
+        self.static_agents = []
         self.load_scene(self.scene_name)
         self.episode_reward = 0.0
-        return self._get_observation()
+        return self._get_observation(), {}
         
     def step(self, action):
-        # t.start()
         self.render()
-        # t.stop("render")
-
-
-        # t.start()
+        
         if self._discrete_actions:
             _, self.a = self._action_discrete_to_continuous(action)
             self.s, _, _ = self.traffic_controller.ego_controller.stanely_controller()
         else:
             self.s, self.a = action
-        # t.stop("action_conversion")
             
-        # self.s, self.a = action
-        # t.start()
         self.tick()
-        # t.stop("tick")
         
-        
-        # t.start()
         reward, done, info = self.reward_fn()
-        # t.stop("reward_fn")
-        
-        
-        t.start()
         obs = self._get_observation()
-        t.stop("get_observation")
-        
         
         self.episode_reward += reward
-        
         return obs, reward, done, info
         
         

@@ -71,7 +71,7 @@ class CarController:
     def __init__(self, route, 
                  vehicle, 
                  initial_waypoint=0,
-                 goal_waypoint = 40,
+                 goal_waypoint = 30,
                  acceleration_controller=None):
         self.route = route                  # The route we want to follow
         

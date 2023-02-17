@@ -141,6 +141,7 @@ if __name__ == "__main__":
                   learning_rate=args.learning_rate,
                   gamma=args.gamma,
                   batch_size=args.batch_size,
+                  replay_buffer_size=200_000,
                   episodes_per_epoch=20)
     
     # wandb.watch(agent, log="all", log_freq=100)
