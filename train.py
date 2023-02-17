@@ -34,16 +34,18 @@ class EpochCallback:
         self.constant_metrics = {'epoch_number': -1, 
                                  'max_epoch_reward': -99999999}
         self.checkpoint_dir = checkpoint_dir
+        wandb.run.define_metric("epoch_reward", step_metric="x_step")
     
     def __call__(self, epoch_reward, epoch_count, model):
         self.metrics['epoch_reward'].append(epoch_reward)
-        wandb.log({'epoch_reward': self.metrics['epoch_reward'][-1]})
+        wandb.log({'epoch_reward': self.metrics['epoch_reward'][-1],
+                   "x_step": epoch_count})
         
         if epoch_reward > self.constant_metrics['max_epoch_reward']:
             self.constant_metrics['epoch_number'] = epoch_count
             self.constant_metrics['max_epoch_reward'] = epoch_reward
             torch.save(model.state_dict(), 
-                       os.path.join(checkpoint_dir, "reward_best.pth"))
+                       os.path.join(self.checkpoint_dir, "reward_best.pth"))
             
 class CheckpointCallback:
     def __init__(self, checkpoint_dir, save_every):
@@ -60,6 +62,16 @@ class CheckpointCallback:
     @property
     def next_model_name(self):
         return f"model_{self._n_calls}.pth"  
+    
+    
+class LossCallback:
+    def __init__(self, save_every=1):
+        self.save_every = save_every
+        wandb.run.define_metric("loss", step_metric="y_step")
+        
+    def __call__(self, loss, count):
+        if count % self.save_every == 0:
+            wandb.log({'loss': loss.item(), "y_step": count})
 
         
     

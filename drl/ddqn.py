@@ -55,10 +55,11 @@ class DDQN:
         
     def learn(self, 
               total_timesteps,
-              log = True,
+              log = False,
               epoch_callback = None,
               checkpoint_callback = None,
-              episode_callback = None):
+              episode_callback = None,
+              loss_callback = None):
         # Perform initial training setup
         self._setup_train()
         
@@ -94,7 +95,7 @@ class DDQN:
                     # End of epoch
                     epoch_count += 1
                     avg_epoch_reward = self._cumulative_epoch_reward/self.episodes_per_epoch
-                    self._epoch_print(avg_epoch_reward) 
+                    self._epoch_print(avg_epoch_reward, count, total_timesteps) 
                     
                     if epoch_callback is not None:
                         epoch_callback(avg_epoch_reward, 
@@ -107,7 +108,7 @@ class DDQN:
                 episode_reward = 0.0
                 
             # Update weights
-            self._update_network_weights(count)
+            self._update_network_weights(count, loss_callback)
         
         self.env.close()
                     
@@ -141,8 +142,8 @@ class DDQN:
         # self.epsilon *= self.epsilon_decay
         # self.epsilon = max(self.epsilon, self.epsilon_min)
         
-    def _epoch_print(self, avg_epoch_reward):                    
-        print(f"\tTRAIN: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}")
+    def _epoch_print(self, avg_epoch_reward, count, total_timesteps):                    
+        print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}")
     
     def _episode_print(self, episode_reward, info):                    
         print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, {self.epsilon}")
@@ -180,18 +181,20 @@ class DDQN:
             if done:
                 y = torch.tensor(r, device=self._device)
             else:
-                action = torch.argmax(self.target_policy(s_new))
+                # action = torch.argmax(self.target_policy(s_new))
+                action = torch.argmax(self.policy(s_new))
                 q_hat = self.policy(s_new)[action]
                 y = torch.tensor(r, device=self._device) + self.gamma * q_hat
                 
                 if c == 0:
-                    print("states: ", s, s_new)
-                    print("q_hat(s_new): ", self.target_policy(s_new))
-                    print("max_axtion: ", action)
-                    print("q(s_new) ", self.policy(s_new))
-                    print("q(s_new, max_action) ", q_hat)
-                    print("r: ", r)
-                    print("current value: ", self.policy(s)[a], "dqn target: ", y)
+                    # print("states: ", s, s_new)
+                    # print("q_hat(s_new): ", self.target_policy(s_new))
+                    # print("q_hat(s_new): ", self.policy(s_new))
+                    # print("max_axtion: ", action)
+                    # print("q(s_new) ", self.policy(s_new))
+                    # print("q(s_new, max_action) ", q_hat)
+                    # print("r: ", r)
+                    # print("current value: ", self.policy(s)[a], "dqn target: ", y)
                     c+=1
                     
             L += (self.policy(s)[a] - y)**2
@@ -204,23 +207,17 @@ class DDQN:
             new_state = torch.tensor(new_state, device=self._device)
         return new_state.to(self._device), reward, done, truncated, info
         
-    def _update_network_weights(self, count):
+    def _update_network_weights(self, count, loss_callback):
         if len(self._memory) > self.start_learn: 
             # LEARN PHASE
             self.optimizer.zero_grad()
             minibatch = random.sample(self._memory, self.batch_size)
-            
-            with torch.no_grad():
-                print("before update: ", self.policy(minibatch[0][0]))
-            
             loss = self._q_loss(minibatch)
             loss.backward()
-            self.optimizer.step()
             
-            with torch.no_grad():
-                print("after update: ", self.policy(minibatch[0][0]))
-                print()
-                print()
+            if loss_callback is not None:
+                loss_callback(loss, count)
+            self.optimizer.step()
             
             # Update target network
             if count % self.network_update_frequency == 0:
