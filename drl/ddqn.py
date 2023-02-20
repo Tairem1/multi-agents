@@ -20,6 +20,7 @@ class DDQN:
     def __init__(self, 
                  env,
                  policy,
+                 test_env=None,
                  device='cpu',
                  replay_buffer_size=20_000,
                  gamma = 0.95,
@@ -30,6 +31,7 @@ class DDQN:
                  start_learn=100,
                  batch_size=16,
                  episodes_per_epoch = 5,
+                 test_every = 5_000,
                  network_update_frequency=100):
         self._memory = deque(maxlen=replay_buffer_size)
         self.gamma = gamma
@@ -41,13 +43,17 @@ class DDQN:
         self.batch_size = batch_size
         self.start_learn = max(start_learn, batch_size)
         self.network_update_frequency = network_update_frequency
+        self.test_every = test_every
         
         # Create network and target network
         self.policy = policy
         self.target_policy = copy.deepcopy(policy)
         self.env = env
+        self.test_env = test_env
         
         # Deep learning parameters
+        print(self.policy)
+        print(self.policy.parameters())
         self.optimizer = torch.optim.Adam(self.policy.parameters(),
                                           lr=self.learning_rate)
         self._device = device
@@ -59,7 +65,8 @@ class DDQN:
               epoch_callback = None,
               checkpoint_callback = None,
               episode_callback = None,
-              loss_callback = None):
+              loss_callback = None,
+              eval_callback = None):
         # Perform initial training setup
         self._setup_train()
         
@@ -67,7 +74,7 @@ class DDQN:
         epoch_count = 0
         episode_reward = 0.0
         self._start_new_epoch()
-        state, _ = self._start_new_episode()
+        state, _ = self._start_new_episode(self.env)
         
         # Training main loop
         for count in range(total_timesteps):
@@ -104,14 +111,38 @@ class DDQN:
                         
                     self._start_new_epoch()
                     
-                state, _ = self._start_new_episode()
+                state, _ = self._start_new_episode(self.env)
                 episode_reward = 0.0
                 
             # Update weights
             self._update_network_weights(count, loss_callback)
-        
+            
+            if self.test_env is not None:
+                if (count % self.test_every) == 0:
+                    mean, std = self._evaluate_model()
+                    print(f"\tEVAL: Episode reward: {mean:.2f} +- {std:.2f}")
+                    eval_callback(mean, std, count, self.policy)
+            
         self.env.close()
-                    
+        
+    def _evaluate_model(self, seed=0, n_episodes=5):
+        rewards = []
+        with torch.no_grad():
+            self.policy.eval()
+            for i in range(n_episodes):
+                total_reward = 0.0
+                state, _ = self._start_new_episode(self.test_env, seed=i)
+                for _ in range(10000):
+                    action = int(torch.argmax(self.policy(state)))
+                    state, reward, done, _, _ = self._step(action)
+                    total_reward += reward
+                    if done:
+                        break
+                rewards.append(total_reward)
+        self.policy.train()
+        mean, std = np.mean(rewards), np.std(rewards)
+        return mean, std
+        
                     
                     
     ######################
@@ -135,12 +166,8 @@ class DDQN:
         return action
                 
     def _update_epsilon(self, count):
-        # Update epsilon in epsilon-greedy exploration
         self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * \
             np.exp(-1. * count / self.epsilon_decay)
-        
-        # self.epsilon *= self.epsilon_decay
-        # self.epsilon = max(self.epsilon, self.epsilon_min)
         
     def _epoch_print(self, avg_epoch_reward, count, total_timesteps):                    
         print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}")
@@ -155,10 +182,14 @@ class DDQN:
         self.policy.train()         
         self.target_policy.eval()
     
-    def _start_new_episode(self):
+    def _start_new_episode(self, env, seed=None):
         self._episode_count += 1
         self._episode_reward = 0.0
-        state, info = self.env.reset()
+        
+        if seed is None:
+            state, info = env.reset()
+        else:
+            state, info = env.reset(seed=seed)
         
         if isinstance(state, np.ndarray):
             state = torch.tensor(state).to(self._device)
@@ -176,27 +207,15 @@ class DDQN:
     def _q_loss(self, minibatch):
         # Compute loss                
         L = 0.0
-        c = 0
         for s, a, r, s_new, done in minibatch:
             if done:
                 y = torch.tensor(r, device=self._device)
             else:
-                # action = torch.argmax(self.target_policy(s_new))
+                # XXX ACTIVATE LINE action = torch.argmax(self.target_policy(s_new))
                 action = torch.argmax(self.policy(s_new))
                 q_hat = self.policy(s_new)[action]
                 y = torch.tensor(r, device=self._device) + self.gamma * q_hat
                 
-                if c == 0:
-                    # print("states: ", s, s_new)
-                    # print("q_hat(s_new): ", self.target_policy(s_new))
-                    # print("q_hat(s_new): ", self.policy(s_new))
-                    # print("max_axtion: ", action)
-                    # print("q(s_new) ", self.policy(s_new))
-                    # print("q(s_new, max_action) ", q_hat)
-                    # print("r: ", r)
-                    # print("current value: ", self.policy(s)[a], "dqn target: ", y)
-                    c+=1
-                    
             L += (self.policy(s)[a] - y)**2
         L /= len(minibatch)
         return L
@@ -219,9 +238,10 @@ class DDQN:
                 loss_callback(loss, count)
             self.optimizer.step()
             
-            # Update target network
-            if count % self.network_update_frequency == 0:
-                self._update_target_policy()
+            # XXX REMOVE COMMENTS
+            # Update target network 
+            # if count % self.network_update_frequency == 0:
+            #     self._update_target_policy()
         
         
         

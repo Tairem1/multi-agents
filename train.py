@@ -16,6 +16,7 @@ import torch_geometric
 
 import os
 import pickle
+import json
 import wandb
 import argparse
 
@@ -47,6 +48,11 @@ class EpochCallback:
             torch.save(model.state_dict(), 
                        os.path.join(self.checkpoint_dir, "reward_best.pth"))
             
+    def __del__(self):
+        with open(os.path.join(self.checkpoint_dir, "constant_metrics.json"), "w") as f:
+            json.dump(self.constant_metrics, f, indent=2)
+            
+            
 class CheckpointCallback:
     def __init__(self, checkpoint_dir, save_every):
         self.checkpoint_dir = checkpoint_dir
@@ -72,6 +78,31 @@ class LossCallback:
     def __call__(self, loss, count):
         if count % self.save_every == 0:
             wandb.log({'loss': loss.item(), "y_step": count})
+            
+class EvalCallback:
+    def __init__(self, checkpoint_dir):
+        self.metrics = {'eval_reward': [], "eval_std": []}  # By default, an epoch is 100 episodes
+        self.constant_metrics = {'iteration': -1, 
+                                 'max_eval_reward': -99999999}
+        self.checkpoint_dir = checkpoint_dir
+        wandb.run.define_metric("eval_reward", step_metric="z_step")
+    
+    def __call__(self, mean, std, count, model):
+        self.metrics['eval_reward'].append(mean)
+        self.metrics['eval_std'].append(std)
+        wandb.log({'eval_reward': self.metrics['eval_reward'][-1],
+                   "z_step": count})
+        
+        if mean > self.constant_metrics['max_eval_reward']:
+            self.constant_metrics['iteration'] = count
+            self.constant_metrics['max_eval_reward'] = mean
+            torch.save(model.state_dict(), 
+                       os.path.join(self.checkpoint_dir, "eval_best.pth"))
+            
+    def __del__(self):
+        with open(os.path.join(self.checkpoint_dir, "eval_metrics.json"), "w") as f:
+            json.dump(self.constant_metrics, f, indent=2)
+    
 
         
     
@@ -125,7 +156,22 @@ if __name__ == "__main__":
     args = parse()
     wandb_init()
     
-    set_seed(args.seed)
+    config = {'EPISODES_PER_EPOCH': 20,  
+        'BATCH_SIZE': 32,
+        'GAMMA': 0.99,
+        'EPS_START': 1.0,
+        'EPS_END': 0.01,
+        'EPS_DECAY': 30_000,
+        'TOTAL_TIMESTEPS': 50_000,
+        'REPLAY_BUFFER_SIZE': 10_000,
+        'LR': 1e-3,
+        'NETWORK_UPDATE_FREQUENCY': 50,
+        'SEED': args.seed,
+        }
+    wandb.config.update(config)
+    
+    
+    set_seed(config['SEED'])
     num_node_features = 4
     action_size = 3
         
@@ -142,30 +188,36 @@ if __name__ == "__main__":
     
     print('*'*30)
     print("Training initiating....")
-    print(args)
+    print(config)
     print()
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     agent = GCNPolicy(num_node_features, action_size).to(device)
     model = DDQN(world, 
                   agent, 
-                  device,
-                  learning_rate=args.learning_rate,
-                  gamma=args.gamma,
-                  batch_size=args.batch_size,
-                  replay_buffer_size=200_000,
-                  episodes_per_epoch=20)
+                  test_env=None, 
+                  device=device,
+                  learning_rate=config['LR'],
+                  batch_size=config['BATCH_SIZE'], 
+                  start_learn = 1_000,
+                  eps_start = config['EPS_START'],
+                  eps_min=config['EPS_END'],
+                  eps_decay=config['EPS_DECAY'],
+                  replay_buffer_size=config['REPLAY_BUFFER_SIZE'], 
+                  network_update_frequency=config['NETWORK_UPDATE_FREQUENCY'],
+                  episodes_per_epoch=config['EPISODES_PER_EPOCH'])
+     
     
     # wandb.watch(agent, log="all", log_freq=100)
 
     checkpoint_dir = create_checkpoint_directory()
     print(f'Saving data to: {checkpoint_dir}')
-    save_args(checkpoint_dir, args)
+    save_args(checkpoint_dir, config)
     
     epoch_callback = EpochCallback(checkpoint_dir)
     checkpoint_callback = CheckpointCallback(checkpoint_dir, save_every=20_000)
-    model.learn(total_timesteps=args.total_timesteps, 
-                log=args.log, 
+    model.learn(total_timesteps=config['TOTAL_TIMESTEPS'], 
+                log=False, 
                 epoch_callback=epoch_callback,
                 checkpoint_callback=checkpoint_callback)
     

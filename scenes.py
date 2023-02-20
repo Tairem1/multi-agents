@@ -332,7 +332,7 @@ class Scene(World):
             info['end_reason'] = None
         return reward, done, info
       
-    def reset(self):
+    def reset(self, seed=None):
         self.t = 0
         self.dynamic_agents = []
         self.static_agents = []
@@ -355,7 +355,7 @@ class Scene(World):
         obs = self._get_observation()
         
         self.episode_reward += reward
-        return obs, reward, done, info
+        return obs, reward, done, False, info
         
         
         
