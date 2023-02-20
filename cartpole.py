@@ -7,11 +7,11 @@ Created on Thu Feb 16 08:42:32 2023
 import torch
 from drl.ddqn import DDQN
 import gymnasium as gym
-import numpy as np
 import os
 import wandb
-from train import wandb_init, set_seed
 import argparse
+from util.utils import set_seed
+from util.callbacks import EpochCallback,CheckpointCallback,EvalCallback,LossCallback
 
 class MLPPolicy(torch.nn.Module):
     def __init__(self, state_dim, num_actions, hidden_dim=32):
@@ -45,6 +45,8 @@ def create_checkpoint_directory():
     
     
 if __name__ == "__main__":
+    WANDB_LOG = False
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--tag', type=str, default="cartpole",
                         help="Model name.")
@@ -54,7 +56,6 @@ if __name__ == "__main__":
     
     set_seed(args.seed)
     
-    wandb.init(project="GCN-DRL", group="cartpole-tests", job_type="train")
     config = {'EPISODES_PER_EPOCH': 20,  
         'BATCH_SIZE': 32,
         'GAMMA': 0.99,
@@ -64,10 +65,13 @@ if __name__ == "__main__":
         'TOTAL_TIMESTEPS': 50_000,
         'REPLAY_BUFFER_SIZE': 10_000,
         'LR': 1e-3,
-        'NETWORK_UPDATE_FREQUENCY': 50,
+        'NETWORK_UPDATE_FREQUENCY': 1,
         'SEED': args.seed,
         }
-    wandb.config.update(config)
+    
+    if WANDB_LOG:
+        wandb.init(project="GCN-DRL", group="cartpole-tests", job_type="train")
+        wandb.config.update(config)
     
     from train import EpochCallback, CheckpointCallback, LossCallback, EvalCallback
     
@@ -102,10 +106,10 @@ if __name__ == "__main__":
     try:
         model.learn(total_timesteps=config['TOTAL_TIMESTEPS'], 
                     log=False, 
-                    epoch_callback=EpochCallback(checkpoint_dir),
+                    epoch_callback=EpochCallback(checkpoint_dir,wandb_log=WANDB_LOG),
                     checkpoint_callback=checkpoint_callback,
-                    loss_callback=LossCallback(),
-                    eval_callback=EvalCallback(checkpoint_dir))
+                    loss_callback=LossCallback(wandb_log=WANDB_LOG),
+                    eval_callback=EvalCallback(checkpoint_dir, wandb_log=WANDB_LOG))
     finally:
         env.close()
     

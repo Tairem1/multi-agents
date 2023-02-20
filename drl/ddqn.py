@@ -211,8 +211,11 @@ class DDQN:
             if done:
                 y = torch.tensor(r, device=self._device)
             else:
-                # XXX ACTIVATE LINE action = torch.argmax(self.target_policy(s_new))
-                action = torch.argmax(self.policy(s_new))
+                action = torch.argmax(self.target_policy(s_new))
+                
+                print(self.target_policy(s_new), self.policy(s_new))
+                
+                # action = torch.argmax(self.policy(s_new))
                 q_hat = self.policy(s_new)[action]
                 y = torch.tensor(r, device=self._device) + self.gamma * q_hat
                 
@@ -240,8 +243,8 @@ class DDQN:
             
             # XXX REMOVE COMMENTS
             # Update target network 
-            # if count % self.network_update_frequency == 0:
-            #     self._update_target_policy()
+            if count % self.network_update_frequency == 0:
+                self._update_target_policy()
         
         
         

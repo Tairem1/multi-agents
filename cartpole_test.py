@@ -27,7 +27,6 @@ if __name__ == "__main__":
         agent = agent.to(device)
         
         N_EVALUATION_EPISODES = 5
-        
         rewards = []
         for i in range(N_EVALUATION_EPISODES):
             state, info = env.reset(seed=i)
