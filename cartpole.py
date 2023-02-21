@@ -45,39 +45,38 @@ def create_checkpoint_directory():
     
     
 if __name__ == "__main__":
-    WANDB_LOG = False
-    
     parser = argparse.ArgumentParser()
     parser.add_argument('--tag', type=str, default="cartpole",
                         help="Model name.")
     parser.add_argument('--seed', type=int, default=0,
-                        help="Seed for random initialisation.")     
+                        help="Seed for random initialisation.")    
+    parser.add_argument('--wandb', action="store_true", default=False)
     args = parser.parse_args()
     
     set_seed(args.seed)
+
+    checkpoint_dir = create_checkpoint_directory()
+    if not os.path.isdir(checkpoint_dir):
+        os.mkdir(checkpoint_dir)
     
     config = {'EPISODES_PER_EPOCH': 20,  
         'BATCH_SIZE': 32,
         'GAMMA': 0.99,
         'EPS_START': 1.0,
-        'EPS_END': 0.01,
-        'EPS_DECAY': 30_000,
+        'EPS_END': 0.05,
+        'EPS_DECAY': 25_000,
         'TOTAL_TIMESTEPS': 50_000,
+        'TEST_EVERY': 5_000,
         'REPLAY_BUFFER_SIZE': 10_000,
-        'LR': 1e-3,
-        'NETWORK_UPDATE_FREQUENCY': 1,
+        'LR': 1e-4,
+        'NETWORK_UPDATE_FREQUENCY': 50,
         'SEED': args.seed,
+        'CHECKPOINT_DIR': checkpoint_dir,
         }
     
-    if WANDB_LOG:
+    if args.wandb:
         wandb.init(project="GCN-DRL", group="cartpole-tests", job_type="train")
         wandb.config.update(config)
-    
-    from train import EpochCallback, CheckpointCallback, LossCallback, EvalCallback
-    
-    checkpoint_dir = create_checkpoint_directory()
-    if not os.path.isdir(checkpoint_dir):
-        os.mkdir(checkpoint_dir)
     
     # env = gym.make('CartPole-v1', render_mode="human")
     env = gym.make('CartPole-v1', render_mode="human")
@@ -98,6 +97,7 @@ if __name__ == "__main__":
                  eps_start = config['EPS_START'],
                  eps_min=config['EPS_END'],
                  eps_decay=config['EPS_DECAY'],
+                 test_every=config['TEST_EVERY'],
                  replay_buffer_size=config['REPLAY_BUFFER_SIZE'], 
                  network_update_frequency=config['NETWORK_UPDATE_FREQUENCY'],
                  episodes_per_epoch=config['EPISODES_PER_EPOCH'])
@@ -106,11 +106,12 @@ if __name__ == "__main__":
     try:
         model.learn(total_timesteps=config['TOTAL_TIMESTEPS'], 
                     log=False, 
-                    epoch_callback=EpochCallback(checkpoint_dir,wandb_log=WANDB_LOG),
+                    epoch_callback=EpochCallback(checkpoint_dir,wandb_log=args.wandb),
                     checkpoint_callback=checkpoint_callback,
-                    loss_callback=LossCallback(wandb_log=WANDB_LOG),
-                    eval_callback=EvalCallback(checkpoint_dir, wandb_log=WANDB_LOG))
+                    loss_callback=LossCallback(wandb_log=args.wandb),
+                    eval_callback=EvalCallback(checkpoint_dir, wandb_log=args.wandb))
     finally:
         env.close()
+        wandb.finish()
     
     

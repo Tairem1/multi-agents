@@ -18,7 +18,7 @@ import networkx as nx
 
 from traffic_controller import CarController
 
-from timer import Timer
+from util.timer import Timer
 
 t = Timer()
 

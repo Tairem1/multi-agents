@@ -35,7 +35,7 @@ class EpochCallback:
                        os.path.join(self.checkpoint_dir, "reward_best.pth"))
             
     def __del__(self):
-        with open(os.path.join(self.checkpoint_dir, "constant_metrics.json"), "w") as f:
+        with open(os.path.join(self.checkpoint_dir, "epoch_metrics.json"), "w") as f:
             json.dump(self.constant_metrics, f, indent=2)
             
             

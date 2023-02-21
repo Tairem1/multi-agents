@@ -30,7 +30,6 @@ if __name__ == "__main__":
         rewards = []
         for i in range(N_EVALUATION_EPISODES):
             state, info = env.reset(seed=i)
-            print(state)
             state = torch.tensor(state).to(device)
             
             done = False

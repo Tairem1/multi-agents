@@ -18,6 +18,8 @@ import pickle
 import json
 import wandb
 import argparse
+from util.utils import set_seed
+from util.callbacks import EpochCallback,CheckpointCallback,EvalCallback,LossCallback
     
 def parse():
     parser = argparse.ArgumentParser()
@@ -29,6 +31,7 @@ def parse():
                         help="Log training curves") 
     parser.add_argument('--seed', type=int, default=0,
                         help="Seed for random initialisation.")             
+    parser.add_argument('--wandb', action="store_true", default=False)
     
     # Training hyperparameters
     parser.add_argument('--batch_size', type=int, default=16, 
@@ -65,7 +68,6 @@ def save_args(checkpoint_dir, args):
 
 if __name__ == "__main__":
     args = parse()
-    wandb_init()
     
     config = {'EPISODES_PER_EPOCH': 20,  
         'BATCH_SIZE': 32,
@@ -79,8 +81,10 @@ if __name__ == "__main__":
         'NETWORK_UPDATE_FREQUENCY': 50,
         'SEED': args.seed,
         }
-    wandb.config.update(config)
     
+    if args.wandb:
+        wandb_init()
+        wandb.config.update(config)
     
     set_seed(config['SEED'])
     num_node_features = 4
@@ -125,15 +129,15 @@ if __name__ == "__main__":
     print(f'Saving data to: {checkpoint_dir}')
     save_args(checkpoint_dir, config)
     
-    epoch_callback = EpochCallback(checkpoint_dir)
-    checkpoint_callback = CheckpointCallback(checkpoint_dir, save_every=20_000)
-    model.learn(total_timesteps=config['TOTAL_TIMESTEPS'], 
-                log=False, 
-                epoch_callback=epoch_callback,
-                checkpoint_callback=checkpoint_callback)
-    
-    with open(checkpoint_dir+'metrics.pkl', 'wb') as fp:
-        pickle.dump(epoch_callback.metrics, fp)
-        
-    world.close()
+    checkpoint_callback = CheckpointCallback(checkpoint_dir, save_every=5_000)
+    try:
+        model.learn(total_timesteps=config['TOTAL_TIMESTEPS'], 
+                    log=False, 
+                    epoch_callback=EpochCallback(checkpoint_dir,wandb_log=args.wandb),
+                    checkpoint_callback=checkpoint_callback,
+                    loss_callback=LossCallback(wandb_log=args.wandb),
+                    eval_callback=EvalCallback(checkpoint_dir, wandb_log=args.wandb))
+    finally:
+        world.close()
+        wandb.finish()
     

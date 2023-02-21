@@ -52,8 +52,6 @@ class DDQN:
         self.test_env = test_env
         
         # Deep learning parameters
-        print(self.policy)
-        print(self.policy.parameters())
         self.optimizer = torch.optim.Adam(self.policy.parameters(),
                                           lr=self.learning_rate)
         self._device = device
@@ -86,7 +84,9 @@ class DDQN:
             
             # Gather and store new transition in replay buffer
             action = self._eps_greedy_action_selection(state)
-            new_state, reward, done, truncated, info = self._step(action)
+            new_state, reward, terminated, truncated, info = self._step(action)
+            done = terminated or truncated
+            
             self._add_experience(state, action, reward, new_state, done)
             state = new_state
             episode_reward += reward
@@ -124,26 +124,6 @@ class DDQN:
                     eval_callback(mean, std, count, self.policy)
             
         self.env.close()
-        
-    def _evaluate_model(self, seed=0, n_episodes=5):
-        rewards = []
-        with torch.no_grad():
-            self.policy.eval()
-            for i in range(n_episodes):
-                total_reward = 0.0
-                state, _ = self._start_new_episode(self.test_env, seed=i)
-                for _ in range(10000):
-                    action = int(torch.argmax(self.policy(state)))
-                    state, reward, done, _, _ = self._step(action)
-                    total_reward += reward
-                    if done:
-                        break
-                rewards.append(total_reward)
-        self.policy.train()
-        mean, std = np.mean(rewards), np.std(rewards)
-        return mean, std
-        
-                    
                     
     ######################
     ### HELPER METHODS ###
@@ -166,11 +146,14 @@ class DDQN:
         return action
                 
     def _update_epsilon(self, count):
-        self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * \
-            np.exp(-1. * count / self.epsilon_decay)
-        
+        # self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * \
+        #     np.exp(-1. * count / self.epsilon_decay)
+        eps =  self.epsilon_start + \
+             (self.epsilon_min - self.epsilon_start)*count/self.epsilon_decay
+        self.epsilon = max(self.epsilon_min, eps)
+                             
     def _epoch_print(self, avg_epoch_reward, count, total_timesteps):                    
-        print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}")
+        print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps {self.epsilon}")
     
     def _episode_print(self, episode_reward, info):                    
         print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, {self.epsilon}")
@@ -211,12 +194,9 @@ class DDQN:
             if done:
                 y = torch.tensor(r, device=self._device)
             else:
-                action = torch.argmax(self.target_policy(s_new))
-                
-                print(self.target_policy(s_new), self.policy(s_new))
-                
                 # action = torch.argmax(self.policy(s_new))
-                q_hat = self.policy(s_new)[action]
+                # q_hat = self.policy(s_new)[action]
+                q_hat = torch.max(self.target_policy(s_new))
                 y = torch.tensor(r, device=self._device) + self.gamma * q_hat
                 
             L += (self.policy(s)[a] - y)**2
@@ -224,10 +204,10 @@ class DDQN:
         return L
     
     def _step(self, action):
-        new_state, reward, done, truncated, info = self.env.step(action)
+        new_state, reward, terminated, truncated, info = self.env.step(action)
         if isinstance(new_state, np.ndarray):
             new_state = torch.tensor(new_state, device=self._device)
-        return new_state.to(self._device), reward, done, truncated, info
+        return new_state.to(self._device), reward, terminated, truncated, info
         
     def _update_network_weights(self, count, loss_callback):
         if len(self._memory) > self.start_learn: 
@@ -245,6 +225,42 @@ class DDQN:
             # Update target network 
             if count % self.network_update_frequency == 0:
                 self._update_target_policy()
+        
+    def _evaluate_model(self, n_episodes=5):
+        rewards = []
+        with torch.no_grad():
+            self.policy.eval()
+            for i in range(n_episodes):
+                total_reward = 0.0
+                state, info = self.test_env.reset(seed=i)
+                state = self._move_state_to_device(state)
+                
+                for _ in range(10000):
+                    action = int(torch.argmax(self.policy(state)))
+                                
+                    state, reward, terminated, truncated, info = self.test_env.step(action)
+                    state = self._move_state_to_device(state)
+                    
+                    total_reward += reward
+                    if terminated or truncated:
+                        break
+                rewards.append(total_reward)
+        self.policy.train()
+        print(rewards)
+        mean, std = np.mean(rewards), np.std(rewards)
+        return mean, std
+    
+    def _move_state_to_device(self, state):
+        if isinstance(state, np.ndarray):
+            state = torch.tensor(state).to(self._device)
+        elif isinstance(state, Data):
+            state = state.to(self._device)
+        else:
+            raise Exception("Unexpected state type")
+        return state
+        
+        
+                    
         
         
         
