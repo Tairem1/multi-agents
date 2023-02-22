@@ -11,15 +11,15 @@ from torch_geometric.nn import GCNConv
 from torch_geometric.nn import aggr
 
 class GCNPolicy(torch.nn.Module):
-    def __init__(self, num_node_features, num_actions):
+    def __init__(self, num_node_features, num_actions, hidden_features=16):
         super().__init__()
-        self.conv1 = GCNConv(num_node_features, 3)
+        self.conv1 = GCNConv(num_node_features, hidden_features)
         self.ReLU1 = torch.nn.ReLU()
-        # self.conv2 = GCNConv(4, 3)
-        # self.ReLU2 = torch.nn.ReLU()
+        self.conv2 = GCNConv(hidden_features, hidden_features)
+        self.ReLU2 = torch.nn.ReLU()
         # self.global_pooling = aggr.MeanAggregation()
         self.global_pooling = aggr.MaxAggregation()
-        self.classifier = torch.nn.Linear(3, num_actions)
+        self.classifier = torch.nn.Linear(hidden_features, num_actions)
         self._num_actions = num_actions
         
     @property
@@ -30,8 +30,8 @@ class GCNPolicy(torch.nn.Module):
         x, edge_index = data.x, data.edge_index
         x = self.conv1(x, edge_index)
         x = F.relu(x)
-        # x = F.dropout(x, training=self.training)
-        # x = self.conv2(x, edge_index)
+        x = F.dropout(x, training=self.training)
+        x = self.conv2(x, edge_index)
         x = F.relu(x)
         x = self.global_pooling(x)
         x = self.classifier(x)

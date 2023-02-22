@@ -51,6 +51,7 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0,
                         help="Seed for random initialisation.")    
     parser.add_argument('--wandb', action="store_true", default=False)
+    parser.add_argument('--log', action="store_true", default=False)
     args = parser.parse_args()
     
     set_seed(args.seed)
@@ -105,7 +106,7 @@ if __name__ == "__main__":
     checkpoint_callback = CheckpointCallback(checkpoint_dir, save_every=5_000)
     try:
         model.learn(total_timesteps=config['TOTAL_TIMESTEPS'], 
-                    log=False, 
+                    log=args.log, 
                     epoch_callback=EpochCallback(checkpoint_dir,wandb_log=args.wandb),
                     checkpoint_callback=checkpoint_callback,
                     loss_callback=LossCallback(wandb_log=args.wandb),

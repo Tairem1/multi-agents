@@ -14,7 +14,19 @@ import torch
 from torch_geometric.data import Data
 
 # from timer import Timer
-# t = Timer()
+
+import time
+class Timer:
+    def __init__(self):
+        pass
+    
+    def start(self):
+        self.start_time = time.time()
+        
+    def stop(self, function_name):
+        self.stop_time = time.time()
+        print(f"TIMER\t{function_name} {self.stop_time - self.start_time}")
+t = Timer()
 
 class DDQN:
     def __init__(self, 
@@ -30,7 +42,7 @@ class DDQN:
                  eps_decay = 0.99,
                  start_learn=100,
                  batch_size=16,
-                 episodes_per_epoch = 5,
+                 episodes_per_epoch = 10,
                  test_every = 5_000,
                  network_update_frequency=100):
         self._memory = deque(maxlen=replay_buffer_size)

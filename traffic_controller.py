@@ -181,12 +181,16 @@ class TrafficController:
                     continue
         
         ego_route = 3
-        x, y, heading = self.get_spawn_transform(ego_route, 10)
+        initial_waypoint = 18
+        goal_waypoint = 28
+        x, y, heading = self.get_spawn_transform(ego_route, initial_waypoint)
         self.ego_vehicle = Car(Point(x, y), heading, 
                                velocity=Point(0, 0), color='blue')
         self.add_ego_vehicle(self.ego_vehicle, ego_route)
         self.ego_controller = CarController(self.world.routes[ego_route], 
-                                            self.ego_vehicle)
+                                            self.ego_vehicle,
+                                            initial_waypoint=initial_waypoint,
+                                            goal_waypoint=goal_waypoint)
                     
     def tick(self):
         for index, row in self.traffic.iterrows():

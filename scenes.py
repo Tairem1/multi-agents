@@ -166,7 +166,7 @@ class Scene(World):
             self.draw_route(self.routes[3], 'orange')
             self.draw_route(self.routes[4], 'purple')
             
-            N_cars = np.random.randint(0, 11)
+            N_cars = np.random.randint(3, 14)
             self.traffic_controller = TrafficController(self, N_cars=N_cars)
     
             # Pedestrian is almost the same as Car. It is a "circle" object rather than a rectangle.
@@ -314,22 +314,24 @@ class Scene(World):
         goal_reached = self._goal_reached()
         collision = self.collision_exists(self.ego_vehicle)
         
-        if self.t > 40.0:
+        
+        if self.t > 400.0:
             done = True
             reward = -0.25
             info['end_reason'] = 'timeout'
         elif goal_reached:
             done = True
-            reward = 1.0
+            reward = +5.0
             info['end_reason'] = 'goal_reached'
         elif collision:
             done = True
-            reward = -1.0
+            reward = -10.0
             info['end_reason'] = 'collision_found'
         else:
             reward = -self.dt/10.0
+            # reward = self.ego_vehicle.speed
             done = False
-            info['end_reason'] = None
+            
         return reward, done, info
       
     def reset(self, seed=None):

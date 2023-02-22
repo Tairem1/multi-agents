@@ -27,11 +27,11 @@ def parse():
                         help="Model name.")
     parser.add_argument('--group_name', type=str, default=None,
                         help="Specify an experiment group name to group together multiple runs")
-    parser.add_argument('--log', action="store_true", default=False,
-                        help="Log training curves") 
+    parser.add_argument('--log', action="store_true", default=False) 
+    
     parser.add_argument('--seed', type=int, default=0,
                         help="Seed for random initialisation.")             
-    parser.add_argument('--wandb', action="store_true", default=False)
+    parser.add_argument('--wandb', action="store_true", default=False)   
     
     # Training hyperparameters
     parser.add_argument('--batch_size', type=int, default=16, 
@@ -47,7 +47,7 @@ def parse():
 
 
 def wandb_init():
-    wandb.init(project="GCN-DRL", group=args.group_name, job_type="train")
+    wandb.init(project="GCN-DRL", group="Intersection", job_type="train")
     wandb.config.update(args)
     
 def create_checkpoint_directory():
@@ -70,14 +70,14 @@ if __name__ == "__main__":
     args = parse()
     
     config = {'EPISODES_PER_EPOCH': 20,  
-        'BATCH_SIZE': 32,
+        'BATCH_SIZE': 8,
         'GAMMA': 0.99,
         'EPS_START': 1.0,
-        'EPS_END': 0.01,
-        'EPS_DECAY': 30_000,
-        'TOTAL_TIMESTEPS': 50_000,
+        'EPS_END': 0.05,
+        'EPS_DECAY': 50_000,
+        'TOTAL_TIMESTEPS': 1_000_000,
         'REPLAY_BUFFER_SIZE': 10_000,
-        'LR': 1e-3,
+        'LR': 1e-4,
         'NETWORK_UPDATE_FREQUENCY': 50,
         'SEED': args.seed,
         }
@@ -99,7 +99,16 @@ if __name__ == "__main__":
                   ppm = 5, 
                   render=True,
                   discrete_actions=True)
+    
+    test_world = Scene(dt, 
+                  width = 120, 
+                  height = 120, 
+                  ppm = 5, 
+                  render=False,
+                  discrete_actions=True)
+    
     world.load_scene("scene01")
+    test_world.load_scene("scene01")
     
     print('*'*30)
     print("Training initiating....")
@@ -132,7 +141,7 @@ if __name__ == "__main__":
     checkpoint_callback = CheckpointCallback(checkpoint_dir, save_every=5_000)
     try:
         model.learn(total_timesteps=config['TOTAL_TIMESTEPS'], 
-                    log=False, 
+                    log=args.log, 
                     epoch_callback=EpochCallback(checkpoint_dir,wandb_log=args.wandb),
                     checkpoint_callback=checkpoint_callback,
                     loss_callback=LossCallback(wandb_log=args.wandb),
