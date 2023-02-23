@@ -285,6 +285,8 @@ class Scene(World):
         edges = torch.tensor(edge_list, dtype=torch.long).t().contiguous().view(2, -1)
         
         obs = Data(x=nodes, edge_index=edges)
+        print(f"Num nodes: {obs.num_nodes}")
+        print(f"Num node features: {obs.num_node_features}")
         return obs
     
     def _action_discrete_to_continuous(self, action):

@@ -13,7 +13,7 @@ import copy
 import torch
 from torch_geometric.data import Data
 
-# from timer import Timer
+from buffer import ReplayBuffer
 
 import time
 class Timer:
@@ -45,7 +45,7 @@ class DDQN:
                  episodes_per_epoch = 10,
                  test_every = 5_000,
                  network_update_frequency=100):
-        self._memory = deque(maxlen=replay_buffer_size)
+        self._memory = ReplayBuffer(replay_buffer_size)
         self.gamma = gamma
         self.epsilon_start = eps_start
         self.epsilon_min = eps_min
@@ -141,7 +141,7 @@ class DDQN:
     ### HELPER METHODS ###
     ######################
     def _add_experience(self, old_state, action, reward, new_state, done):
-        self._memory.append((old_state, action, reward, new_state, done))
+        self._memory.add_experience((old_state, action, reward, new_state, done))
         
     def _update_target_policy(self):
         self.target_policy.load_state_dict(self.policy.state_dict())
@@ -199,20 +199,29 @@ class DDQN:
         self._episode_count = 0
         self._cumulative_epoch_reward = 0.0
     
-    def _q_loss(self, minibatch):
-        # Compute loss                
-        L = 0.0
-        for s, a, r, s_new, done in minibatch:
-            if done:
-                y = torch.tensor(r, device=self._device)
-            else:
-                # action = torch.argmax(self.policy(s_new))
-                # q_hat = self.policy(s_new)[action]
-                q_hat = torch.max(self.target_policy(s_new))
-                y = torch.tensor(r, device=self._device) + self.gamma * q_hat
+    # def _q_loss(self, minibatch):
+    #     # Compute loss                
+    #     L = 0.0
+    #     for s, a, r, s_new, done in minibatch:
+    #         if done:
+    #             y = torch.tensor(r, device=self._device)
+    #         else:
+    #             # action = torch.argmax(self.policy(s_new))
+    #             # q_hat = self.policy(s_new)[action]
+    #             q_hat = torch.max(self.target_policy(s_new))
+    #             y = torch.tensor(r, device=self._device) + self.gamma * q_hat
                 
-            L += (self.policy(s)[a] - y)**2
-        L /= len(minibatch)
+    #         L += (self.policy(s)[a] - y)**2
+    #     L /= len(minibatch)
+    #     return L
+    
+    def _q_loss(self, minibatch):
+        state, action, reward, new_state, done = minibatch
+        
+        q_hat, _ = torch.max(self.target_policy(new_state), axis=1)
+        y = reward + ~done * self.gamma * q_hat
+        
+        L = torch.mean((self.policy(state)[range(self.batch_size), action] - y)**2)
         return L
     
     def _step(self, action):
@@ -225,7 +234,7 @@ class DDQN:
         if len(self._memory) > self.start_learn: 
             # LEARN PHASE
             self.optimizer.zero_grad()
-            minibatch = random.sample(self._memory, self.batch_size)
+            minibatch = self._memory.sample(self.batch_size)
             loss = self._q_loss(minibatch)
             loss.backward()
             
@@ -233,7 +242,6 @@ class DDQN:
                 loss_callback(loss, count)
             self.optimizer.step()
             
-            # XXX REMOVE COMMENTS
             # Update target network 
             if count % self.network_update_frequency == 0:
                 self._update_target_policy()
