@@ -71,7 +71,7 @@ if __name__ == "__main__":
         'REPLAY_BUFFER_SIZE': 10_000,
         'LR': 1e-4,
         'NETWORK_UPDATE_FREQUENCY': 50,
-        'SEED': args.seed,
+        'RANDOM_SEED': args.seed,
         'CHECKPOINT_DIR': checkpoint_dir,
         }
     
@@ -80,7 +80,7 @@ if __name__ == "__main__":
         wandb.config.update(config)
     
     # env = gym.make('CartPole-v1', render_mode="human")
-    env = gym.make('CartPole-v1', render_mode="human")
+    env = gym.make('CartPole-v1')
     test_env = gym.make('CartPole-v1')
     
     state_size = env.observation_space.shape[0]
@@ -94,7 +94,7 @@ if __name__ == "__main__":
                  device=device,
                  learning_rate=config['LR'],
                  batch_size=config['BATCH_SIZE'], 
-                 start_learn = 1_000,
+                 start_learn = 50,
                  eps_start = config['EPS_START'],
                  eps_min=config['EPS_END'],
                  eps_decay=config['EPS_DECAY'],

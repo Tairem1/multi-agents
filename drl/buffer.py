@@ -10,22 +10,26 @@ import random
 from torch_geometric.data import Data
 from torch_geometric.data import Batch
 import torch
+import numpy as np
+import torch_geometric
 
 
 class ReplayBuffer:
-    def __init__(self, size, force_cpu=False):
+    def __init__(self, size, device):
         self._memory = deque(maxlen=size)
-        self.device = "cuda" if torch.cuda.is_available() and not force_cpu else "cpu"
+        self.device = device
         
     def __len__(self):
         return len(self._memory)
 
     def add_experience(self, state, action, reward, new_state, done):
+        if isinstance(state, torch.Tensor):
+            raise Exception(type(state))
         self._memory.append((state, action, reward, new_state, done))  
         
     def sample(self, batch_size):
         samples = random.sample(self._memory, batch_size)
-        
+
         # Create batched tensors 
         action = torch.tensor([el[1] for el in samples],
                               device=self.device)
@@ -35,19 +39,21 @@ class ReplayBuffer:
         done = torch.tensor([el[4] for el in samples], 
                             dtype=torch.bool,
                             device=self.device)
-        if isinstance(samples[0][0], torch.Tensor) \
-            or isinstance(samples[0][0], np.ndarray):
-            state = torch.tensor([el[0] for el in samples], 
+        
+        if isinstance(samples[0][0], np.ndarray):
+            state = torch.tensor(np.array([el[0] for el in samples]), 
                                  dtype=torch.float32,
                                  device=self.device)
-            new_state = torch.tensor([el[3] for el in samples], 
+            new_state = torch.tensor(np.array([el[3] for el in samples]), 
                                      dtype=torch.float32,
                                      device=self.device)
         elif isinstance(samples[0][0], torch_geometric.data.Data):
             state = Batch.from_data_list([el[0] for el in samples])
             new_state = Batch.from_data_list([el[3] for el in samples])
+        elif isinstance(samples[0][0], torch.Tensor):
+            raise Exception(f"Not yet implemented")
         else:
-            raise Exception(f"Unexpected type {type(minibatch[0][0])}")
+            raise Exception(f"Unexpected type {type(samples[0][0])}")
             
         return [state, action, reward, new_state, done]
         
@@ -64,6 +70,7 @@ if __name__ == "__main__":
     from torch_geometric.nn import GCNConv
     from torch_geometric.nn import aggr
     
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
     def set_seed(seed):
         torch_geometric.seed_everything(seed)
@@ -78,9 +85,7 @@ if __name__ == "__main__":
     def random_graph(node_features, num_nodes, edge_prob=0.5):
         edge_list = erdos_renyi_graph(num_nodes, edge_prob)
         nodes = torch.rand(num_nodes, node_features)
-        return Data(x=nodes, edge_index=edge_list)
-    
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+        return Data(x=nodes, edge_index=edge_list).to(device)
     
     class GCNPolicy(torch.nn.Module):
         def __init__(self, n_features, n_actions):
@@ -113,50 +118,8 @@ if __name__ == "__main__":
         def forward(self, x):
             return self.linear1(x)
         
-    N_FEATURES = 4
-    N_ACTIONS = 2
-    BATCH_SIZE = 3
-    BUFFER_SIZE = 8 
-    gamma = 1.0
-    
-    set_seed(4)
-    buffer = ReplayBuffer(BUFFER_SIZE)
-    
-    # graphs = [random_graph(N_FEATURES, np.random.randint(2, 4)) for _ in range(BUFFER_SIZE)]
-    # new_graphs = [random_graph(N_FEATURES, np.random.randint(2, 4)) for _ in range(BUFFER_SIZE)]
-    # for i in range(BUFFER_SIZE):
-    #     action = np.random.randint(0, 3)
-    #     reward = np.random.rand()
-    #     done = (np.random.rand() > 0.5)
-    #     buffer.add_experience(graphs[i], action, reward, new_graphs[i], done)
-    
-    # minibatch = buffer.sample(BATCH_SIZE)
-    
-    # state, action, reward, new_state, done = minibatch
-    # model = GCNPolicy(N_FEATURES, N_ACTIONS)
-    
-    # Q = model(new_state)
-    # q_hat, _ = torch.max(Q, axis=1)
-    # y = reward + done * gamma * q_hat
-    # L = torch.mean((model(state)[range(BATCH_SIZE), action] - y)**2)
-    
-    # TEST WITH ARRAY ENVIRONMENT
-    buffer = ReplayBuffer(BUFFER_SIZE)
-    state = [np.random.rand(N_FEATURES) for _ in range(BUFFER_SIZE)]
-    new_state = [np.random.rand(N_FEATURES) for _ in range(BUFFER_SIZE)]
-    for i in range(BUFFER_SIZE):
-        action = np.random.randint(N_ACTIONS)
-        reward = np.random.rand()
-        done = (np.random.rand() > 0.5)
-        buffer.add_experience(state[i], action, reward, new_state[i], done)
-    
-    minibatch = buffer.sample(BATCH_SIZE)
-    state, action, reward, new_state, done = minibatch
-    model = MLPPolicy(N_FEATURES, N_ACTIONS)
-    
-    GAMMA = 0.98
-    
-    def q_loss1(model, minibatch, batch_size):
+        
+    def q_loss1(model, minibatch, batch_size, gamma):
         # Compute loss                
         L = 0.0
         s_, a_, r_, s_new_, done_ = minibatch
@@ -166,25 +129,75 @@ if __name__ == "__main__":
                 y = r
             else:
                 q_hat = torch.max(model(s_new))
-                y = r + GAMMA * q_hat
+                y = r + gamma * q_hat
             L += (model(s)[a] - y)**2
         L /= batch_size
         return L
     
-    def q_loss2(model, minibatch, batch_size):
+    def q_loss2(model, minibatch, batch_size, gamma):
         state, action, reward, new_state, done = minibatch
         
         q_hat, _ = torch.max(model(new_state), axis=1)
-        y = reward + ~done * GAMMA * q_hat
+        y = reward + ~done * gamma * q_hat
         
         L = torch.mean((model(state)[range(batch_size), action] - y)**2)
         return L
+        
+    N_FEATURES = 4
+    N_ACTIONS = 2
+    BATCH_SIZE = 3
+    BUFFER_SIZE = 8 
+    GAMMA = 1.0
     
-    L1 = q_loss1(model, minibatch, BATCH_SIZE)
-    print("\n"*1)
-    L2 = q_loss2(model, minibatch, BATCH_SIZE)
-    print(L1, L2)
+    set_seed(4)
+    buffer = ReplayBuffer(BUFFER_SIZE, device)
     
+    def test_graph():
+        graphs = [random_graph(N_FEATURES, np.random.randint(2, 4)) for _ in range(BUFFER_SIZE)]
+        new_graphs = [random_graph(N_FEATURES, np.random.randint(2, 4)) for _ in range(BUFFER_SIZE)]
+        for i in range(BUFFER_SIZE):
+            action = np.random.randint(N_ACTIONS)
+            reward = np.random.rand()
+            done = (np.random.rand() > 0.5)
+            buffer.add_experience(graphs[i], action, reward, new_graphs[i], done)
+        
+        minibatch = buffer.sample(BATCH_SIZE)
+        
+        state, action, reward, new_state, done = minibatch
+        model = GCNPolicy(N_FEATURES, N_ACTIONS).to(device)
+        
+        Q = model(new_state)
+        q_hat, _ = torch.max(Q, axis=1)
+        y = reward + done * GAMMA * q_hat
+        L = torch.mean((model(state)[range(BATCH_SIZE), action] - y)**2)
+        
+        print(q_loss1(model, minibatch, BATCH_SIZE, GAMMA))
+        print(q_loss2(model, minibatch, BATCH_SIZE, GAMMA))
+    test_graph()
+    
+    
+    # TEST WITH ARRAY ENVIRONMENT
+    def test_numpy():
+        buffer = ReplayBuffer(BUFFER_SIZE, device)
+        state = [np.random.rand(N_FEATURES) for _ in range(BUFFER_SIZE)]
+        new_state = [np.random.rand(N_FEATURES) for _ in range(BUFFER_SIZE)]
+        for i in range(BUFFER_SIZE):
+            action = np.random.randint(N_ACTIONS)
+            reward = np.random.rand()
+            done = (np.random.rand() > 0.5)
+            buffer.add_experience(state[i], action, reward, new_state[i], done)
+        
+        minibatch = buffer.sample(BATCH_SIZE)
+        state, action, reward, new_state, done = minibatch
+        model = MLPPolicy(N_FEATURES, N_ACTIONS).to(device)
+        
+        
+        L1 = q_loss1(model, minibatch, BATCH_SIZE, GAMMA)
+        print("\n"*1)
+        L2 = q_loss2(model, minibatch, BATCH_SIZE, GAMMA)
+        print(L1)
+        print(L2)
+    test_numpy()
     ## TODO testare su cartpole e vedere se è più efficiente
 
     

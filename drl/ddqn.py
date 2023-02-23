@@ -13,7 +13,7 @@ import copy
 import torch
 from torch_geometric.data import Data
 
-from buffer import ReplayBuffer
+from drl.buffer import ReplayBuffer
 
 import time
 class Timer:
@@ -45,7 +45,7 @@ class DDQN:
                  episodes_per_epoch=10,
                  test_every=5_000,
                  network_update_frequency=100):
-        self._memory = ReplayBuffer(replay_buffer_size)
+        self._memory = ReplayBuffer(replay_buffer_size, device)
         self.gamma = gamma
         self.epsilon_start = eps_start
         self.epsilon_min = eps_min
@@ -96,10 +96,10 @@ class DDQN:
             
             # Gather and store new transition in replay buffer
             action = self._eps_greedy_action_selection(state)
-            new_state, reward, terminated, truncated, info = self._step(action)
+            new_state, reward, terminated, truncated, info = self.env.step(action)
+
             done = terminated or truncated
-            
-            self._add_experience(state, action, reward, new_state, done)
+            self._memory.add_experience(state, action, reward, new_state, done)
             state = new_state
             episode_reward += reward
             
@@ -140,12 +140,6 @@ class DDQN:
     ######################
     ### HELPER METHODS ###
     ######################
-    def _add_experience(self, old_state, action, reward, new_state, done):
-        self._memory.add_experience((old_state, action, reward, new_state, done))
-        
-    def _update_target_policy(self):
-        self.target_policy.load_state_dict(self.policy.state_dict())
-        
     def _eps_greedy_action_selection(self, current_state):
         with torch.no_grad():
             p = np.random.rand()
@@ -154,7 +148,13 @@ class DDQN:
                 action = np.random.choice(self.policy.num_actions)
             else:
                 # Action selection based on Q function
-                action = int(torch.argmax(self.policy(current_state)))
+                if isinstance(current_state, np.ndarray):
+                    s = torch.tensor(current_state, device=self._device)
+                elif isinstance(current_state, Data):
+                    s = current_state.to(self._device)
+                else:
+                    raise Exception(f"Unsupported state type: {type(current_state)}")
+                action = int(torch.argmax(self.policy(s)))
         return action
                 
     def _update_epsilon(self, count):
@@ -184,13 +184,6 @@ class DDQN:
         else:
             state, info = env.reset(seed=seed)
         
-        if isinstance(state, np.ndarray):
-            state = torch.tensor(state).to(self._device)
-        elif isinstance(state, Data):
-            state = state.to(self._device)
-        else:
-            raise Exception("Unexpected state type")
-        
         return state, info
     
     def _start_new_epoch(self):
@@ -205,12 +198,6 @@ class DDQN:
         
         L = torch.mean((self.policy(state)[range(self.batch_size), action] - y)**2)
         return L
-    
-    def _step(self, action):
-        new_state, reward, terminated, truncated, info = self.env.step(action)
-        if isinstance(new_state, np.ndarray):
-            new_state = torch.tensor(new_state, device=self._device)
-        return new_state.to(self._device), reward, terminated, truncated, info
         
     def _update_network_weights(self, count, loss_callback):
         if len(self._memory) > self.start_learn: 
@@ -226,7 +213,7 @@ class DDQN:
             
             # Update target network 
             if count % self.network_update_frequency == 0:
-                self._update_target_policy()
+                self.target_policy.load_state_dict(self.policy.state_dict())
         
     def _evaluate_model(self, n_episodes=5):
         rewards = []
