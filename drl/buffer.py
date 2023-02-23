@@ -162,17 +162,11 @@ if __name__ == "__main__":
         s_, a_, r_, s_new_, done_ = minibatch
         for i in range(batch_size):
             s, a, r, s_new, done = s_[i], a_[i], r_[i], s_new_[i], done_[i]
-            # q_hat = self.policy(s_new)[action]
-            q_hat = torch.max(model(s_new))
-            
             if done:
                 y = r
             else:
-                # action = torch.argmax(self.policy(s_new))
+                q_hat = torch.max(model(s_new))
                 y = r + GAMMA * q_hat
-            print("r", r, "q_hat", q_hat, "done", done)
-            print("y", y)
-            # print(model(s)[a])
             L += (model(s)[a] - y)**2
         L /= batch_size
         return L

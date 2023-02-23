@@ -35,15 +35,15 @@ class DDQN:
                  test_env=None,
                  device='cpu',
                  replay_buffer_size=20_000,
-                 gamma = 0.95,
-                 learning_rate = 1e-03,
-                 eps_start = 0.9,
-                 eps_min = 0.01,
-                 eps_decay = 0.99,
+                 gamma=0.95,
+                 learning_rate=1e-03,
+                 eps_start=0.9,
+                 eps_min=0.01,
+                 eps_decay=0.99,
                  start_learn=100,
                  batch_size=16,
-                 episodes_per_epoch = 10,
-                 test_every = 5_000,
+                 episodes_per_epoch=10,
+                 test_every=5_000,
                  network_update_frequency=100):
         self._memory = ReplayBuffer(replay_buffer_size)
         self.gamma = gamma
@@ -158,8 +158,6 @@ class DDQN:
         return action
                 
     def _update_epsilon(self, count):
-        # self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * \
-        #     np.exp(-1. * count / self.epsilon_decay)
         eps =  self.epsilon_start + \
              (self.epsilon_min - self.epsilon_start)*count/self.epsilon_decay
         self.epsilon = max(self.epsilon_min, eps)
@@ -198,22 +196,6 @@ class DDQN:
     def _start_new_epoch(self):
         self._episode_count = 0
         self._cumulative_epoch_reward = 0.0
-    
-    # def _q_loss(self, minibatch):
-    #     # Compute loss                
-    #     L = 0.0
-    #     for s, a, r, s_new, done in minibatch:
-    #         if done:
-    #             y = torch.tensor(r, device=self._device)
-    #         else:
-    #             # action = torch.argmax(self.policy(s_new))
-    #             # q_hat = self.policy(s_new)[action]
-    #             q_hat = torch.max(self.target_policy(s_new))
-    #             y = torch.tensor(r, device=self._device) + self.gamma * q_hat
-                
-    #         L += (self.policy(s)[a] - y)**2
-    #     L /= len(minibatch)
-    #     return L
     
     def _q_loss(self, minibatch):
         state, action, reward, new_state, done = minibatch
@@ -279,7 +261,20 @@ class DDQN:
             raise Exception("Unexpected state type")
         return state
         
-        
+    # def _q_loss(self, minibatch):               
+    #     L = 0.0
+    #     s_, a_, r_, s_new_, done_ = minibatch
+    #     for i in range(self.batch_size):
+    #         s, a, r, s_new, done = s_[i], a_[i], r_[i], s_new_[i], done_[i]
+    #         if done:
+    #             y = r
+    #         else:
+    #             q_hat = torch.max(self.target_policy(s_new))
+    #             y = r + self.gamma * q_hat
+    #         L += (self.policy(s)[a] - y)**2
+    #     L /= self.batch_size
+    #     return L
+    
                     
         
         
