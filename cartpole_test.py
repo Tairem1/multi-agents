@@ -21,7 +21,7 @@ if __name__ == "__main__":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
         # model_path = "./checkpoint/cartpole_000/model_10000.pth"
-        model_path = "./checkpoint/cartpole_004/reward_best.pth"
+        model_path = "./checkpoint/cartpole_005/reward_best.pth"
         agent = MLPPolicy(state_size, action_size)
         agent.load_state_dict(torch.load(model_path))
         agent = agent.to(device)

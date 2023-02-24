@@ -12,6 +12,8 @@ import wandb
 import argparse
 from util.utils import set_seed
 from util.callbacks import EpochCallback,CheckpointCallback,EvalCallback,LossCallback
+from torch.optim import lr_scheduler
+
 
 class MLPPolicy(torch.nn.Module):
     def __init__(self, state_dim, num_actions, hidden_dim=32):
@@ -65,12 +67,12 @@ if __name__ == "__main__":
         'GAMMA': 0.99,
         'EPS_START': 1.0,
         'EPS_END': 0.05,
-        'EPS_DECAY': 25_000,
-        'TOTAL_TIMESTEPS': 50_000,
+        'EPS_DECAY': 750_000,
+        'TOTAL_TIMESTEPS': 1_000_000,
         'TEST_EVERY': 5_000,
-        'REPLAY_BUFFER_SIZE': 10_000,
+        'REPLAY_BUFFER_SIZE': 100_000,
         'LR': 1e-4,
-        'NETWORK_UPDATE_FREQUENCY': 50,
+        'NETWORK_UPDATE_FREQUENCY': 100,
         'RANDOM_SEED': args.seed,
         'CHECKPOINT_DIR': checkpoint_dir,
         }
@@ -87,12 +89,19 @@ if __name__ == "__main__":
     action_size = env.action_space.n
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
     agent = MLPPolicy(state_size, action_size).to(device)
+    optimizer = torch.optim.Adam(agent.parameters(),
+                                 config['LR'])
+    scheduler = lr_scheduler.PolynomialLR(optimizer, 
+                                          total_iters=config['TOTAL_TIMESTEPS'],
+                                          power=2.0)
     model = DDQN(env, 
                  agent, 
+                 optimizer,
+                 scheduler,
                  test_env=test_env, 
                  device=device,
-                 learning_rate=config['LR'],
                  batch_size=config['BATCH_SIZE'], 
                  start_learn = 50,
                  eps_start = config['EPS_START'],

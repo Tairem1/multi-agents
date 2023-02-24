@@ -32,11 +32,12 @@ class DDQN:
     def __init__(self, 
                  env,
                  policy,
+                 optimizer,
+                 lr_scheduler=None,
                  test_env=None,
                  device='cpu',
                  replay_buffer_size=20_000,
                  gamma=0.95,
-                 learning_rate=1e-03,
                  eps_start=0.9,
                  eps_min=0.01,
                  eps_decay=0.99,
@@ -50,7 +51,6 @@ class DDQN:
         self.epsilon_start = eps_start
         self.epsilon_min = eps_min
         self.epsilon_decay = eps_decay
-        self.learning_rate = learning_rate
         self.episodes_per_epoch = episodes_per_epoch
         self.batch_size = batch_size
         self.start_learn = max(start_learn, batch_size)
@@ -64,8 +64,8 @@ class DDQN:
         self.test_env = test_env
         
         # Deep learning parameters
-        self.optimizer = torch.optim.Adam(self.policy.parameters(),
-                                          lr=self.learning_rate)
+        self.optimizer = optimizer
+        self.scheduler = lr_scheduler
         self._device = device
         
         
@@ -163,10 +163,10 @@ class DDQN:
         self.epsilon = max(self.epsilon_min, eps)
                              
     def _epoch_print(self, avg_epoch_reward, count, total_timesteps):                    
-        print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps {self.epsilon}")
+        print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps: {self.epsilon:.2f}, lr: {self.scheduler.get_last_lr()[0]}, {len(self.scheduler.get_last_lr())}")
     
     def _episode_print(self, episode_reward, info):                    
-        print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, {self.epsilon}")
+        print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, eps: {self.epsilon}, lr: {self.scheduler.get_last_lr()}")
 
     def _end_of_epoch(self):
         return (self._episode_count % self.episodes_per_epoch) == 0
@@ -211,6 +211,9 @@ class DDQN:
                 loss_callback(loss, count)
             self.optimizer.step()
             
+            if self.scheduler is not None:
+                self.scheduler.step()
+            
             # Update target network 
             if count % self.network_update_frequency == 0:
                 self.target_policy.load_state_dict(self.policy.state_dict())
@@ -235,7 +238,6 @@ class DDQN:
                         break
                 rewards.append(total_reward)
         self.policy.train()
-        print(rewards)
         mean, std = np.mean(rewards), np.std(rewards)
         return mean, std
     
