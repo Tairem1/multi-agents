@@ -154,7 +154,7 @@ The traffic controller should be responsible for:
 """
     
 class TrafficController:
-    def __init__(self, world, N_cars : int = 3):
+    def __init__(self, world, ego_vehicle, N_cars : int = 3):
         """
         Parameters
         ----------
@@ -180,17 +180,12 @@ class TrafficController:
                 else:
                     continue
         
-        ego_route = 3
-        initial_waypoint = 18
-        goal_waypoint = 28
-        x, y, heading = self.get_spawn_transform(ego_route, initial_waypoint)
-        self.ego_vehicle = Car(Point(x, y), heading, 
-                               velocity=Point(0, 0), color='blue')
-        self.add_ego_vehicle(self.ego_vehicle, ego_route)
-        self.ego_controller = CarController(self.world.routes[ego_route], 
+        self.ego_vehicle = ego_vehicle
+        self.add_ego_vehicle(self.ego_vehicle)
+        self.ego_controller = CarController(self.world.routes[self.ego_vehicle.ego_route_index], 
                                             self.ego_vehicle,
-                                            initial_waypoint=initial_waypoint,
-                                            goal_waypoint=goal_waypoint)
+                                            initial_waypoint=self.ego_vehicle.initial_waypoint,
+                                            goal_waypoint=self.ego_vehicle.goal_waypoint)
                     
     def tick(self):
         for index, row in self.traffic.iterrows():
@@ -237,21 +232,13 @@ class TrafficController:
     @property
     def ego_index(self):
         return self.traffic[self.traffic['id'] == self.ego_vehicle.id].index[0]
-     
-    def get_spawn_transform(self, route_index, point=0):
-        route = self.world.routes[route_index]
-        x, y = route[point]
-        
-        forward_vector = route[point+1] - route[point]
-        heading = np.arctan2(forward_vector[1], forward_vector[0]) % (2*np.pi)
-        return x, y, heading
             
     def spawn_car(self, route_index, random_point=False):
         if random_point:
             i = np.random.randint(0, len(self.world.routes[route_index])-1)
         else: 
             i = 0
-        x, y, heading = self.get_spawn_transform(route_index, i)
+        x, y, heading = self.world.get_spawn_transform(route_index, i)
         initial_velocity = np.random.uniform(3.0, 5.0) * np.array([
             np.cos(heading), np.sin(heading)])
         
@@ -280,9 +267,10 @@ class TrafficController:
             return False
         
     
-    def add_ego_vehicle(self, ego_vehicle, ego_route=-1):
+    def add_ego_vehicle(self, ego_vehicle):
         if not self.world.collision_exists(ego_vehicle):
             self.world.add(ego_vehicle)
+            ego_route = ego_vehicle.ego_route_index
             traffic_agent = {
                     'id': [ego_vehicle.id],
                     'route': [ego_route],

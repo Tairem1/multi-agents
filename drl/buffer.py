@@ -24,7 +24,7 @@ class ReplayBuffer:
 
     def add_experience(self, state, action, reward, new_state, done):
         if isinstance(state, torch.Tensor):
-            raise Exception(type(state))
+            raise Exception(type(state))            
         self._memory.append((state, action, reward, new_state, done))  
         
     def sample(self, batch_size):
@@ -48,10 +48,20 @@ class ReplayBuffer:
                                      dtype=torch.float32,
                                      device=self.device)
         elif isinstance(samples[0][0], torch_geometric.data.Data):
-            state = Batch.from_data_list([el[0] for el in samples])
-            new_state = Batch.from_data_list([el[3] for el in samples])
+            state = Batch.from_data_list([el[0] for el in samples]).to(self.device)
+            new_state = Batch.from_data_list([el[3] for el in samples]).to(self.device)
         elif isinstance(samples[0][0], torch.Tensor):
             raise Exception(f"Not yet implemented")
+        elif isinstance(samples[0][0], tuple):
+            # Return state is a tuple of (batched_graph, batch_speed)
+            batched_graph = Batch.from_data_list([el[0][0] for el in samples]).to(self.device)
+            batched_speed = torch.tensor([[el[0][1]] for el in samples],
+                                  device=self.device)
+            new_batched_graph = Batch.from_data_list([el[3][0] for el in samples]).to(self.device)
+            new_batched_speed = torch.tensor([[el[3][1]] for el in samples],
+                                  device=self.device)
+            state = (batched_graph, batched_speed)
+            new_state = (new_batched_graph, new_batched_speed)
         else:
             raise Exception(f"Unexpected type {type(samples[0][0])}")
             

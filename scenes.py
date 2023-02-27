@@ -5,7 +5,7 @@ Created on Fri Nov 11 11:18:32 2022
 @author: lucac
 """
 from world import World
-from agents import Painting, RectangleBuilding, Car, Pedestrian
+from agents import Painting, RectangleBuilding, Car, Pedestrian, EgoVehicle
 from geometry import Point
 import numpy as np
 from traffic_controller import TrafficController
@@ -27,6 +27,8 @@ class Scene(World):
     ACTION_BRAKE = 0
     ACTION_NONE = 1
     ACTION_ACCELERATE = 2
+    ACTION_SIZE = 3
+    OBS_SIZE = 4
     
     def __init__(self, dt: float, width: float, 
                  height: float, 
@@ -166,8 +168,22 @@ class Scene(World):
             self.draw_route(self.routes[3], 'orange')
             self.draw_route(self.routes[4], 'purple')
             
-            N_cars = np.random.randint(3, 14)
-            self.traffic_controller = TrafficController(self, N_cars=N_cars)
+            N_cars = np.random.randint(0, 14)
+            
+            
+            # Define ego vehicle
+            ego_route = 3
+            initial_waypoint = 18 #np.random.randint(10, 18)
+            goal_waypoint = 28
+            x, y, heading = self.get_spawn_transform(ego_route, initial_waypoint)
+            ego_vehicle = EgoVehicle(   Point(x, y), 
+                                        heading, 
+                                        color='blue', 
+                                        velocity=Point(0, 0), 
+                                        ego_route_index=ego_route,
+                                        initial_waypoint=initial_waypoint,
+                                        goal_waypoint=goal_waypoint)
+            self.traffic_controller = TrafficController(self, ego_vehicle, N_cars=N_cars)
     
             # Pedestrian is almost the same as Car. It is a "circle" object rather than a rectangle.
             # self.p1 = Pedestrian(Point(28,81), np.pi)
@@ -226,13 +242,6 @@ class Scene(World):
         else:
             pass
         
-    def print_observation(self):
-        obs = self._get_observation()
-        print(f"Nodes: {obs.x}")
-        print(f"Edges: {obs.edge_index.t()}")
-        print(f"A: {to_dense_adj(obs.edge_index)}")
-        
-        
     def key_release(self, event):
         if event.char == "w":
             self.a = 0.0
@@ -262,16 +271,20 @@ class Scene(World):
         for i, a in enumerate(nearby_agents):
             p_a = np.array([a.x, a.y])
             if isinstance(a, Car):
-                node = [1.0, 
-                        0.0,
-                        a.x - ego_vehicle.x, 
-                        a.y - ego_vehicle.y
+                node = [#1.0, 
+                        #0.0,
+                        a.x, #- ego_vehicle.x, 
+                        a.y, #- ego_vehicle.y
+                        a.heading,
+                        a.speed,
                         ]
             else:
-                node = [0.0, 
-                        1.0,
-                        a.x - ego_vehicle.x,
-                        a.y - ego_vehicle.y
+                node = [#0.0, 
+                        #1.0,
+                        a.x, # - ego_vehicle.x,
+                        a.y, # - ego_vehicle.y
+                        a.heading,
+                        a.speed,
                         ]
             nodes_list.append(node)
                     
@@ -285,9 +298,7 @@ class Scene(World):
         edges = torch.tensor(edge_list, dtype=torch.long).t().contiguous().view(2, -1)
         
         obs = Data(x=nodes, edge_index=edges)
-        print(f"Num nodes: {obs.num_nodes}")
-        print(f"Num node features: {obs.num_node_features}")
-        return obs
+        return (obs, ego_vehicle.speed)
     
     def _action_discrete_to_continuous(self, action):
         if action == Scene.ACTION_ACCELERATE:
@@ -327,10 +338,10 @@ class Scene(World):
             info['end_reason'] = 'goal_reached'
         elif collision:
             done = True
-            reward = -10.0
+            reward = -20.0
             info['end_reason'] = 'collision_found'
         else:
-            reward = -self.dt/10.0
+            reward = -self.dt/5.0
             # reward = self.ego_vehicle.speed
             done = False
             
@@ -360,6 +371,14 @@ class Scene(World):
         
         self.episode_reward += reward
         return obs, reward, done, False, info
+    
+    def get_spawn_transform(self, route_index, point=0):
+        route = self.routes[route_index]
+        x, y = route[point]
+        
+        forward_vector = route[point+1] - route[point]
+        heading = np.arctan2(forward_vector[1], forward_vector[0]) % (2*np.pi)
+        return x, y, heading
         
         
         

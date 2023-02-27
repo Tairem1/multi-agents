@@ -1,8 +1,6 @@
 @ECHO 
-::set group="Test DQN-GCN"
   
-python cartpole.py --seed 0 --wandb
-python cartpole.py --seed 1 --wandb
-python cartpole.py --seed 2 --wandb
+python train.py --seed 0 --wandb --log --learning_rate 1e-04 --hidden_features 32
+python train.py --seed 0 --wandb --log --learning_rate 1e-04 --hidden_features 64
 
 PAUSE

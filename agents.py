@@ -29,6 +29,18 @@ class Car(RectangleEntity):
         x = self.center.x + np.cos(self.heading)*self.size.x/2.0
         y = self.center.y + np.sin(self.heading)*self.size.x/2.0
         return np.array([x, y])
+    
+class EgoVehicle(Car):
+    def __init__(self, center, 
+                 heading, color, 
+                 velocity, ego_route_index, 
+                 initial_waypoint, goal_waypoint):
+        super(EgoVehicle, self).__init__(center, heading, color, velocity, is_ego_vehicle=True)
+        self.ego_route_index = ego_route_index
+        self.initial_waypoint = initial_waypoint
+        self.goal_waypoint = goal_waypoint
+        
+        
         
 class Pedestrian(CircleEntity):
     def __init__(self, center: Point, heading: float, color: str = 'LightSalmon3'): # after careful consideration, I decided my color is the same as a salmon, so here we go.

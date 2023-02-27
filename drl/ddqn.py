@@ -59,7 +59,7 @@ class DDQN:
         
         # Create network and target network
         self.policy = policy
-        self.target_policy = copy.deepcopy(policy)
+        self.target_policy = copy.deepcopy(policy).to(device)
         self.env = env
         self.test_env = test_env
         
@@ -97,7 +97,7 @@ class DDQN:
             # Gather and store new transition in replay buffer
             action = self._eps_greedy_action_selection(state)
             new_state, reward, terminated, truncated, info = self.env.step(action)
-
+            
             done = terminated or truncated
             self._memory.add_experience(state, action, reward, new_state, done)
             state = new_state
@@ -145,13 +145,18 @@ class DDQN:
             p = np.random.rand()
             if p < self.epsilon:
                 # Random action
-                action = np.random.choice(self.policy.num_actions)
+                action = np.random.randint(self.policy.num_actions)
             else:
                 # Action selection based on Q function
                 if isinstance(current_state, np.ndarray):
                     s = torch.tensor(current_state, device=self._device)
                 elif isinstance(current_state, Data):
-                    s = current_state.to(self._device)
+                    s = copy.deepcopy(current_state).to(self._device)
+                elif isinstance(current_state, tuple):
+                    graph_batch, v_batch = current_state
+                    g = copy.deepcopy(graph_batch).to(self._device)
+                    v = torch.tensor([[v_batch]], device=self._device)
+                    s = (g, v)
                 else:
                     raise Exception(f"Unsupported state type: {type(current_state)}")
                 action = int(torch.argmax(self.policy(s)))
@@ -162,11 +167,18 @@ class DDQN:
              (self.epsilon_min - self.epsilon_start)*count/self.epsilon_decay
         self.epsilon = max(self.epsilon_min, eps)
                              
-    def _epoch_print(self, avg_epoch_reward, count, total_timesteps):                    
-        print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps: {self.epsilon:.2f}, lr: {self.scheduler.get_last_lr()[0]}, {len(self.scheduler.get_last_lr())}")
+    def _epoch_print(self, avg_epoch_reward, count, total_timesteps):  
+        if self.scheduler is not None:                  
+            print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps: {self.epsilon:.2f}, lr: {self.scheduler.get_last_lr()[0]}, {len(self.scheduler.get_last_lr())}")
+        else:                 
+            print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps: {self.epsilon:.2f}")
+            
     
-    def _episode_print(self, episode_reward, info):                    
-        print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, eps: {self.epsilon}, lr: {self.scheduler.get_last_lr()}")
+    def _episode_print(self, episode_reward, info):  
+        if self.scheduler is not None:                  
+            print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, eps: {self.epsilon}, lr: {self.scheduler.get_last_lr()}")
+        else:
+            print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, eps: {self.epsilon}")
 
     def _end_of_epoch(self):
         return (self._episode_count % self.episodes_per_epoch) == 0
@@ -250,21 +262,7 @@ class DDQN:
             raise Exception("Unexpected state type")
         return state
         
-    # def _q_loss(self, minibatch):               
-    #     L = 0.0
-    #     s_, a_, r_, s_new_, done_ = minibatch
-    #     for i in range(self.batch_size):
-    #         s, a, r, s_new, done = s_[i], a_[i], r_[i], s_new_[i], done_[i]
-    #         if done:
-    #             y = r
-    #         else:
-    #             q_hat = torch.max(self.target_policy(s_new))
-    #             y = r + self.gamma * q_hat
-    #         L += (self.policy(s)[a] - y)**2
-    #     L /= self.batch_size
-    #     return L
-    
-                    
+
         
         
         

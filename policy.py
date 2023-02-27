@@ -9,34 +9,83 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 from torch_geometric.nn import aggr
-
+    
+    
 class GCNPolicy(torch.nn.Module):
-    def __init__(self, num_node_features, num_actions, hidden_features=16):
+    def __init__(self, n_features, n_actions, hidden_features=16):
         super().__init__()
-        self.conv1 = GCNConv(num_node_features, hidden_features)
-        self.ReLU1 = torch.nn.ReLU()
-        self.conv2 = GCNConv(hidden_features, hidden_features)
-        self.ReLU2 = torch.nn.ReLU()
-        # self.global_pooling = aggr.MeanAggregation()
-        self.global_pooling = aggr.MaxAggregation()
-        self.classifier = torch.nn.Linear(hidden_features, num_actions)
-        self._num_actions = num_actions
+        self._n_features = n_features
+        self._n_actions = n_actions
         
+        self.conv1 = GCNConv(n_features, hidden_features)
+        self.relu1 = torch.nn.ReLU()
+        self.conv2 = GCNConv(hidden_features, hidden_features)
+        self.relu2 = torch.nn.ReLU()
+        
+        self.global_pooling = aggr.MaxAggregation()
+        self.linear1 = torch.nn.Linear(hidden_features, n_actions)
+        
+    def forward(self, batch):
+        x = self.conv1(batch.x, batch.edge_index, batch.edge_weight)
+        x = self.relu1(x)
+        x = self.conv2(x, batch.edge_index, batch.edge_weight)
+        x = self.relu2(x)
+        x = self.global_pooling(x, batch.batch)
+        x = self.linear1(x)
+        return x.squeeze()
+    
     @property
     def num_actions(self):
-        return self._num_actions
+        return self._n_actions
+    
+    @property
+    def num_node_features(self):
+        return self._n_features
         
-    def forward(self, data):
-        x, edge_index = data.x, data.edge_index
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
-        x = self.conv2(x, edge_index)
-        x = F.relu(x)
-        x = self.global_pooling(x)
-        x = self.classifier(x)
-        return x.squeeze()
-                
+    
+class GCNPolicyTuple(torch.nn.Module):
+    def __init__(self, n_features, n_actions, hidden_features=16):
+        super().__init__()
+        self._n_features = n_features
+        self._n_actions = n_actions
+        
+        self.conv1 = GCNConv(n_features, hidden_features)
+        self.relu1 = torch.nn.ReLU()
+        self.conv2 = GCNConv(hidden_features, hidden_features)
+        self.relu2 = torch.nn.ReLU()
+        
+        self.global_pooling = aggr.MaxAggregation()
+        
+        speed_dim = 4
+        self.speed_encoder = torch.nn.Linear(1, speed_dim)
+        self.linear = torch.nn.Linear(hidden_features + speed_dim, n_actions)
+        
+    def forward(self, batch):
+        if isinstance(batch, tuple):
+            graph_batch, speed_batch = batch
+        else:
+            raise(Exception("Data must be of batch type"))
+            
+        x = self.conv1(graph_batch.x, graph_batch.edge_index, graph_batch.edge_weight)
+        x = self.relu1(x)
+        x = self.conv2(x, graph_batch.edge_index, graph_batch.edge_weight)
+        x = self.relu2(x)
+        x = self.global_pooling(x, graph_batch.batch)
+        
+        v = self.speed_encoder(speed_batch)
+        h = torch.cat((x,v), dim=1)
+        h = self.linear(h)
+        
+        return h.squeeze()
+    
+    @property
+    def num_actions(self):
+        return self._n_actions
+    
+    @property
+    def num_node_features(self):
+        return self._n_features
+            
         
 if __name__ == "__main__":
     import numpy as np
