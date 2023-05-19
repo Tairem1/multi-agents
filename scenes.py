@@ -28,7 +28,7 @@ class Scene(World):
     ACTION_NONE = 1
     ACTION_ACCELERATE = 2
     ACTION_SIZE = 3
-    OBS_SIZE = 4
+    OBS_SIZE = 5
     
     def __init__(self, dt: float, width: float, 
                  height: float, 
@@ -58,8 +58,8 @@ class Scene(World):
         print("\t- R: reset the environment")
         print("\t- F: forward tick")
         print('*'*50)
-        self.a = 0.0
-        self.s = 0.0
+        self.acceleration = 0.0
+        self.steering = 0.0
         
         # Graph building parameters
         self.detection_radius = 30.0
@@ -87,9 +87,11 @@ class Scene(World):
             ####################
             # CREATE BUILDINGS #
             ####################
+            self.speed_normalization_factor = 10.0
             p_s = 2 # pavement size
             road1_width = 6
             road2_width = 12
+            self.speed_limit = 50 / 3.6
             
             sx, sy = ((self.width_m - road1_width)/2, 
                       (self.height_m - road2_width)/2)
@@ -228,7 +230,7 @@ class Scene(World):
             pass
         
     def tick(self):
-        self.traffic_controller.ego_vehicle.set_control(self.s, self.a)
+        self.traffic_controller.ego_vehicle.set_control(self.steering, self.acceleration)
         self.traffic_controller.tick()
         super().tick()
         
@@ -241,18 +243,18 @@ class Scene(World):
     def key_press(self, event):
         if event.char == "w":
             if self.traffic_controller.ego_vehicle.speed < 10.0:
-                self.a = 1.0
+                self.acceleration = 1.0
             else:
-                self.a = 0.0
+                self.acceleration = 0.0
         elif event.char == "s":
             if self.traffic_controller.ego_vehicle.speed > 0:
-                self.a = -4.0
+                self.acceleration = -4.0
             else:
-                self.a = 0.0
+                self.acceleration = 0.0
         elif event.char == "a":
-            self.s = 1.0
+            self.steering = 1.0
         elif event.char == "d":
-            self.s = -1.0
+            self.steering = -1.0
         elif event.char == "r":
             self.reset()
         elif event.char == "o":
@@ -264,13 +266,13 @@ class Scene(World):
         
     def key_release(self, event):
         if event.char == "w":
-            self.a = 0.0
+            self.acceleration = 0.0
         elif event.char == "s":
-           self.a = 0.0
+           self.acceleration = 0.0
         elif event.char == "a":
-            self.s = 0.0
+            self.steering = 0.0
         elif event.char == "d":
-            self.s = 0.0
+            self.steering = 0.0
         else:
             pass
         
@@ -283,50 +285,63 @@ class Scene(World):
         
         nearby_agents = []
         
+        self.closest_vehicle_distance = self.max_d
         for a in self.dynamic_agents:
             p_a = np.array([a.x, a.y])
-            if np.linalg.norm(p_a - p_ego) < self.detection_radius:
+            d_a_ego = np.linalg.norm(p_a - p_ego) 
+            if d_a_ego < self.detection_radius:
                 nearby_agents.append(a)
+                if d_a_ego < self.closest_vehicle_distance:
+                    self.closest_vehicle_distance = d_a_ego
                 
         for i, a in enumerate(nearby_agents):
             p_a = np.array([a.x, a.y])
+            
+            # Create nodes
             if isinstance(a, Car):
                 node = [#1.0, 
                         #0.0,
-                        a.x, #- ego_vehicle.x, 
-                        a.y, #- ego_vehicle.y
-                        a.heading,
-                        a.speed,
+                        a.x/self.width_m, #- ego_vehicle.x, 
+                        a.y/self.height_m, #- ego_vehicle.y
+                        a.heading/(2*np.pi),
+                        a.speed/self.speed_normalization_factor,
+                        1.0, # distance to closest agent
                         ]
             else:
                 node = [#0.0, 
                         #1.0,
-                        a.x, # - ego_vehicle.x,
-                        a.y, # - ego_vehicle.y
-                        a.heading,
-                        a.speed,
+                        a.x/self.width_m, #- ego_vehicle.x, 
+                        a.y/self.height_m, #- ego_vehicle.y
+                        a.heading/(2*np.pi),
+                        a.speed/self.speed_normalization_factor,
+                        1.0, # distance to closest agent
                         ]
-            nodes_list.append(node)
                     
+            # Create edges and find closest vehicle
             for j, b in enumerate(nearby_agents):
+                min_d = np.inf
                 if (i != j):
                     p_b = np.array([b.x, b.y])
                     d_ab = np.linalg.norm(p_a - p_b)
                     if d_ab < self.adjecency_threshold:
                         edge_list.append([i, j])
+                    if d_ab < min_d:
+                        node[4] = d_ab / self.max_d
+                        min_d = d_ab
+            nodes_list.append(node)
+            
         nodes = torch.tensor(nodes_list, dtype=torch.float)
         edges = torch.tensor(edge_list, dtype=torch.long).t().contiguous().view(2, -1)
-        
-        graph = Data(x=nodes, edge_index=edges)
+        self.graph = Data(x=nodes, edge_index=edges)
         
         if self.obs_type == 'gcn':
-            obs = graph
+            obs = self.graph
         elif self.obs_type == 'gcn_speed':
-            obs = (graph, ego_vehicle.speed)
+            obs = (self.graph, ego_vehicle.speed)
         elif self.obs_type == 'gcn_speed_route':
             wp = self.traffic_controller.ego_controller.current_waypoint_index
             route = self.routes[ego_vehicle.ego_route_index][wp:wp+10]
-            obs = (graph, ego_vehicle.speed, route)
+            obs = (self.graph, ego_vehicle.speed, route)
         else:
             raise Exception('Unexpected observation type')
         
@@ -335,10 +350,10 @@ class Scene(World):
     def _action_discrete_to_continuous(self, action):
         if action == Scene.ACTION_ACCELERATE:
             steer = 0.0
-            accelerate = 0.5
+            accelerate = 3.0
         elif action == Scene.ACTION_BRAKE:
             steer = 0.0
-            accelerate = -0.5
+            accelerate = -3.0
         elif action == Scene.ACTION_NONE:
             steer = 0.0
             accelerate = 0.0
@@ -361,21 +376,40 @@ class Scene(World):
         
         if self.t > self.timeout:
             done = True
-            reward = -5.0
+            reward = -1.0
             info['end_reason'] = 'timeout'
         elif goal_reached:
             done = True
-            reward = +5.0
+            reward = +1.0
             info['end_reason'] = 'goal_reached'
         elif collision:
             done = True
-            reward = -20.0
+            reward = -1.0
             info['end_reason'] = 'collision_found'
         else:
-            reward = -self.dt/5.0
-            # reward = 0.0
-            # reward = self.ego_vehicle.speed
             done = False
+            # reward = 0.0
+            v = self.ego_vehicle.speed
+            if v < 0.8 * self.speed_limit:
+                r_velocity = 1.25 * (v / self.speed_limit)
+            elif v >= 0.8 * self.speed_limit and v < self.speed_limit:
+                r_velocity = 1.0
+            else:
+                r_velocity = 6.0 - 5.0 * (v / self.speed_limit)
+            
+            r_idle = -1.0 if (v < 5.0/3.6) else 0.0
+            r_action = -np.abs(self.acceleration)
+            r_proximity = -1.0 + self.closest_vehicle_distance/self.max_d
+            
+            k_velocity = 0.03
+            k_action = 0.01
+            k_idle = 0.01
+            k_proximity = 0.2
+            
+            reward =    k_velocity * r_velocity + \
+                        k_action * r_action + \
+                        k_idle * r_idle + \
+                        k_proximity * r_proximity
             
         return reward, done, info
       
@@ -391,15 +425,15 @@ class Scene(World):
         self.render()
         
         if self._discrete_actions:
-            _, self.a = self._action_discrete_to_continuous(action)
-            self.s, _, _ = self.traffic_controller.ego_controller.stanely_controller()
+            _, self.acceleration = self._action_discrete_to_continuous(action)
+            self.steering, _, _ = self.traffic_controller.ego_controller.stanely_controller()
         else:
-            self.s, self.a = action
+            self.steering, self.acceleration = action
             
         self.tick()
         
-        reward, done, info = self.reward_fn()
         obs = self._get_observation()
+        reward, done, info = self.reward_fn()
         
         self.episode_reward += reward
         return obs, reward, done, False, info

@@ -56,7 +56,7 @@ class Entity:
             beta = np.arctan(lr / (lf + lr) * np.tan(self.inputSteering))
             
             new_angular_velocity = speed * self.inputSteering # this is not needed and used for this model, but let's keep it for consistency (and to avoid if-else statements)
-            new_acceleration = self.inputAcceleration - self.friction
+            new_acceleration = self.inputAcceleration - self.friction * speed
             new_speed = np.clip(speed + new_acceleration * dt, self.min_speed, self.max_speed)
             new_heading = heading + ((speed + new_speed)/lr)*np.sin(beta)*dt/2.
             angle = (heading + new_heading)/2. + beta

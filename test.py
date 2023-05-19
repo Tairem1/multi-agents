@@ -47,7 +47,8 @@ env = Scene(dt,
             obs_type=args['POLICY_NETWORK'])
 env.load_scene("scene01")
 
-agent = init_agent(Scene.ACTION_SIZE, Scene.OBS_SIZE, 
+agent = init_agent(Scene.ACTION_SIZE, 
+                   Scene.OBS_SIZE, 
                    hidden_features=args['HIDDEN_FEATURES'],
                    obs_type=args['POLICY_NETWORK'])
 agent.eval()

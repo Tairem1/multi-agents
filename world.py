@@ -14,6 +14,7 @@ class World:
         self.visualizer = Visualizer(width, height, ppm=ppm, window_name=window_name)
         
         self.width_m, self.height_m = width, height
+        self.max_d = (width**2 + height**2)**0.5
         
     def add(self, entity: Entity):
         if entity.movable:

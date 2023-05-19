@@ -289,7 +289,6 @@ class TrafficController:
         else:
             raise Exception("Tried to spawn car agent but collision existed")
     
-        
     def update_front_vehicles(self, max_range=30):
         for index, row in self.traffic.iterrows():
             df = self.traffic[(self.traffic['route'] == row['route']) & 
