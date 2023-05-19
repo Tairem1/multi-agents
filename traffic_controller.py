@@ -16,9 +16,9 @@ def computeAngleDifference(a1, a2):
     return np.mod((a1 - a2) - np.pi, 2*np.pi) - np.pi
 
 class Proportional:
-    def __init__(self, vehicle, k=2.0):
-        self.k = k        
-        self.desired_speed = max(np.random.normal(5.0, 1.0), 1.0)
+    def __init__(self, vehicle, rng, k=2.0):
+        self.k = k    
+        self.desired_speed = max(rng.normal(5.0, 1.0), 1.0)
         self.vehicle = vehicle
         
     def __call__(self, x):
@@ -27,12 +27,12 @@ class Proportional:
     
     
 class IntelligentDriverModel:
-    def __init__(self, vehicle):
-        self.desired_speed = np.random.uniform(2.0, 8.0)
+    def __init__(self, vehicle, rng):
+        self.desired_speed = rng.uniform(2.0, 8.0)
         self.minimum_spacing = 4.0
-        self.desired_time_headway = np.random.uniform(2.0, 6.0)
-        self.max_acceleration = np.random.uniform(3.0, 5.0)
-        self.comfortable_braking_deceleration = np.random.uniform(3.0, 5.0)
+        self.desired_time_headway = rng.uniform(2.0, 6.0)
+        self.max_acceleration = rng.uniform(3.0, 5.0)
+        self.comfortable_braking_deceleration = rng.uniform(3.0, 5.0)
         self.delta = 4.0
         self.vehicle = vehicle
         
@@ -70,6 +70,7 @@ class IntelligentDriverModel:
 class CarController:
     def __init__(self, route, 
                  vehicle, 
+                 rng,
                  initial_waypoint=0,
                  goal_waypoint = 30,
                  acceleration_controller=None):
@@ -77,17 +78,15 @@ class CarController:
         
         self.vehicle = vehicle              # the vehicle we are controlling
         self.current_waypoint_index = initial_waypoint
-        
         self.goal_waypoint = goal_waypoint
         
         self._steering = 0.0
         self._acceleration = 0.0
         
-        
         if acceleration_controller == 'Proportional':
-            self.acceleration_controller = Proportional(self.vehicle)
+            self.acceleration_controller = Proportional(self.vehicle, rng)
         elif acceleration_controller == 'IDM':
-            self.acceleration_controller = IntelligentDriverModel(self.vehicle)
+            self.acceleration_controller = IntelligentDriverModel(self.vehicle, rng)
         elif acceleration_controller == None:
             self.acceleration_controller = (lambda x: 0.0)
         else:
@@ -154,7 +153,7 @@ The traffic controller should be responsible for:
 """
     
 class TrafficController:
-    def __init__(self, world, ego_vehicle, N_cars : int = 3):
+    def __init__(self, world, ego_vehicle, rng, N_cars : int = 3):
         """
         Parameters
         ----------
@@ -171,19 +170,20 @@ class TrafficController:
         self.world = world
         self.N_cars = N_cars
         self.traffic = pd.DataFrame(columns=['id', 'route', 'vehicle', 'controller'])
+        self.rng = rng
         
         for _ in range(N_cars):
-            route_index = np.random.choice(self.world.non_ego_routes)
+            route_index = self.rng.choice(self.world.non_ego_routes)
             for _ in range(300):
                 if self.spawn_car(route_index, random_point=True):
                     break
                 else:
                     continue
-        
         self.ego_vehicle = ego_vehicle
         self.add_ego_vehicle(self.ego_vehicle)
         self.ego_controller = CarController(self.world.routes[self.ego_vehicle.ego_route_index], 
                                             self.ego_vehicle,
+                                            self.rng,
                                             initial_waypoint=self.ego_vehicle.initial_waypoint,
                                             goal_waypoint=self.ego_vehicle.goal_waypoint)
                     
@@ -206,7 +206,7 @@ class TrafficController:
         # Respawn agents if they disappeared   
         N_spawn = self.N_cars - len(self.traffic)
         for _ in range(N_spawn):
-            route_index = np.random.choice(self.world.non_ego_routes)
+            route_index = self.rng.choice(self.world.non_ego_routes)
             self.spawn_car(route_index)
             
         # Update ego_vehicle route
@@ -235,11 +235,11 @@ class TrafficController:
             
     def spawn_car(self, route_index, random_point=False):
         if random_point:
-            i = np.random.randint(0, len(self.world.routes[route_index])-1)
+            i = self.rng.randint(0, len(self.world.routes[route_index])-1)
         else: 
             i = 0
         x, y, heading = self.world.get_spawn_transform(route_index, i)
-        initial_velocity = np.random.uniform(3.0, 5.0) * np.array([
+        initial_velocity = self.rng.uniform(3.0, 5.0) * np.array([
             np.cos(heading), np.sin(heading)])
         
         car = Car(Point(x, y), heading, 
@@ -248,6 +248,7 @@ class TrafficController:
         if not self.world.collision_exists(car):
             self.world.add(car)
             controller = CarController(self.world.routes[route_index], car, 
+                                       rng=self.rng,
                                        initial_waypoint=i,
                                        acceleration_controller='IDM')
             traffic_agent = {   'id': [car.id],

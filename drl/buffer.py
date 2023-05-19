@@ -54,20 +54,67 @@ class ReplayBuffer:
             raise Exception(f"Not yet implemented")
         elif isinstance(samples[0][0], tuple):
             # Return state is a tuple of (batched_graph, batch_speed)
-            batched_graph = Batch.from_data_list([el[0][0] for el in samples]).to(self.device)
-            batched_speed = torch.tensor([[el[0][1]] for el in samples],
-                                  device=self.device)
-            new_batched_graph = Batch.from_data_list([el[3][0] for el in samples]).to(self.device)
-            new_batched_speed = torch.tensor([[el[3][1]] for el in samples],
-                                  device=self.device)
-            state = (batched_graph, batched_speed)
-            new_state = (new_batched_graph, new_batched_speed)
+            if len(samples[0][0]) == 2:
+                batched_graph = Batch.from_data_list([el[0][0] for el in samples]).to(self.device)
+                batched_speed = torch.tensor([[el[0][1]] for el in samples],
+                                      device=self.device)
+                state = (batched_graph, batched_speed)
+
+                new_batched_graph = Batch.from_data_list([el[3][0] for el in samples]).to(self.device)
+                new_batched_speed = torch.tensor([[el[3][1]] for el in samples],
+                                      device=self.device)
+                new_state = (new_batched_graph, new_batched_speed)
+            elif len(samples[0][0]) == 3:
+                batched_graph = Batch.from_data_list([el[0][0] for el in samples]).to(self.device)
+                batched_speed = torch.tensor(
+                    np.array([[el[0][1]] for el in samples]),
+                    device=self.device,
+                    dtype=torch.float32)
+                batched_route = torch.tensor(
+                    np.array([el[0][2] for el in samples]), 
+                    device=self.device,
+                    dtype=torch.float32)
+                state = (batched_graph, batched_speed, batched_route)
+                
+                new_batched_graph = Batch.from_data_list([el[3][0] for el in samples]).to(self.device)
+                new_batched_speed = torch.tensor(
+                    np.array([[el[3][1]] for el in samples]),
+                    device=self.device,
+                    dtype=torch.float32)
+                new_batched_route = torch.tensor(
+                    np.array([el[3][2] for el in samples]), 
+                    device=self.device,
+                    dtype=torch.float32)
+                new_state = (new_batched_graph, new_batched_speed, new_batched_route)
+                
         else:
             raise Exception(f"Unexpected type {type(samples[0][0])}")
             
         return [state, action, reward, new_state, done]
         
+       
         
+       
+        
+       
+        
+       
+        
+       
+        
+       
+        
+       
+        
+       
+        
+       
+        
+       
+        
+       
+        
+       
 if __name__ == "__main__":
     import numpy as np
     import random

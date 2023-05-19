@@ -3,7 +3,7 @@ from entities import RectangleEntity, CircleEntity, RingEntity
 
 
 class Visualizer:
-    def __init__(self, width: float, height: float, ppm: int):
+    def __init__(self, width: float, height: float, ppm: int, window_name="CARLO"):
         # width (meters)
         # height (meters)
         # ppm is the number of pixels per meters
@@ -12,12 +12,13 @@ class Visualizer:
         self.display_width, self.display_height = int(width*ppm), int(height*ppm)
         self.window_created = False
         self.visualized_imgs = []
+        self.window_name = window_name
         
         
         
     def create_window(self, bg_color: str = 'gray80'):
         if not self.window_created or self.win.isClosed():
-            self.win = GraphWin('CARLO', self.display_width, self.display_height)
+            self.win = GraphWin(self.window_name, self.display_width, self.display_height)
             self.win.setBackground(bg_color)
             self.window_created = True
             self.visualized_imgs = []

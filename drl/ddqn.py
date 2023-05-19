@@ -76,7 +76,8 @@ class DDQN:
               checkpoint_callback = None,
               episode_callback = None,
               loss_callback = None,
-              eval_callback = None):
+              eval_callback = None,
+              n_testing_episodes = 10):
         # Perform initial training setup
         self._setup_train()
         
@@ -131,7 +132,7 @@ class DDQN:
             
             if self.test_env is not None:
                 if (count % self.test_every) == 0:
-                    mean, std = self._evaluate_model()
+                    mean, std = self._evaluate_model(n_testing_episodes)
                     print(f"\tEVAL: Episode reward: {mean:.2f} +- {std:.2f}")
                     eval_callback(mean, std, count, self.policy)
             
@@ -147,19 +148,27 @@ class DDQN:
                 # Random action
                 action = np.random.randint(self.policy.num_actions)
             else:
-                # Action selection based on Q function
-                if isinstance(current_state, np.ndarray):
-                    s = torch.tensor(current_state, device=self._device)
-                elif isinstance(current_state, Data):
-                    s = copy.deepcopy(current_state).to(self._device)
-                elif isinstance(current_state, tuple):
-                    graph_batch, v_batch = current_state
-                    g = copy.deepcopy(graph_batch).to(self._device)
-                    v = torch.tensor([[v_batch]], device=self._device)
-                    s = (g, v)
-                else:
-                    raise Exception(f"Unsupported state type: {type(current_state)}")
+                # # Action selection based on Q function
+                # if isinstance(current_state, np.ndarray):
+                #     s = torch.tensor(current_state, device=self._device)
+                # elif isinstance(current_state, Data):
+                #     s = copy.deepcopy(current_state).to(self._device)
+                # elif isinstance(current_state, tuple):
+                #     if len(current_state) == 2:
+                #         graph_batch, v_batch = current_state
+                #         g = copy.deepcopy(graph_batch).to(self._device)
+                #         v = torch.tensor([[v_batch]], device=self._device)
+                #         s = (g, v)
+                #     elif len(current_state) == 3:
+                #         graph_batch, v_batch = current_state
+                #         g = copy.deepcopy(graph_batch).to(self._device)
+                #         v = torch.tensor([[v_batch]], device=self._device)
+                # else:
+                #     raise Exception(f"Unsupported state type: {type(current_state)}")
+                s = self._move_state_to_device(current_state)
+                self.policy.eval()
                 action = int(torch.argmax(self.policy(s)))
+                self.policy.train()
         return action
                 
     def _update_epsilon(self, count):
@@ -169,7 +178,7 @@ class DDQN:
                              
     def _epoch_print(self, avg_epoch_reward, count, total_timesteps):  
         if self.scheduler is not None:                  
-            print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps: {self.epsilon:.2f}, lr: {self.scheduler.get_last_lr()[0]}, {len(self.scheduler.get_last_lr())}")
+            print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps: {self.epsilon:.2f}, lr: {self.scheduler.get_last_lr()}, {len(self.scheduler.get_last_lr())}")
         else:                 
             print(f"\tTRAIN {float(count)*100/total_timesteps}%: {self.episodes_per_epoch} episodes average reward: {avg_epoch_reward}, eps: {self.epsilon:.2f}")
             
@@ -230,11 +239,12 @@ class DDQN:
             if count % self.network_update_frequency == 0:
                 self.target_policy.load_state_dict(self.policy.state_dict())
         
-    def _evaluate_model(self, n_episodes=5):
+    def _evaluate_model(self, n_testing_episodes=5):
         rewards = []
         with torch.no_grad():
             self.policy.eval()
-            for i in range(n_episodes):
+            self.test_env.reset_rng()
+            for i in range(n_testing_episodes):
                 total_reward = 0.0
                 state, info = self.test_env.reset(seed=i)
                 state = self._move_state_to_device(state)
@@ -258,6 +268,18 @@ class DDQN:
             state = torch.tensor(state).to(self._device)
         elif isinstance(state, Data):
             state = state.to(self._device)
+        elif isinstance(state, tuple):
+            if len(state) == 2:
+                graph_batch, v_batch = state
+                g = copy.deepcopy(graph_batch).to(self._device)
+                v = torch.tensor([[v_batch]], device=self._device)
+                state = (g, v)
+            elif len(state) == 3:
+                graph_batch, v_batch, route_batch = state
+                g = copy.deepcopy(graph_batch).to(self._device)
+                v = torch.tensor([[v_batch]], device=self._device, dtype=torch.float32)
+                r = torch.tensor(np.array([route_batch]), device=self._device, dtype=torch.float32)
+                state = (g, v, r)
         else:
             raise Exception("Unexpected state type")
         return state

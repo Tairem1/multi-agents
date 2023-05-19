@@ -41,7 +41,6 @@ class EgoVehicle(Car):
         self.goal_waypoint = goal_waypoint
         
         
-        
 class Pedestrian(CircleEntity):
     def __init__(self, center: Point, heading: float, color: str = 'LightSalmon3'): # after careful consideration, I decided my color is the same as a salmon, so here we go.
         radius = 0.5

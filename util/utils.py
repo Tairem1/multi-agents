@@ -10,6 +10,8 @@ import random
 import torch_geometric
 import wandb
 
+
+
 def set_seed(seed):
     torch_geometric.seed_everything(seed)
     torch.manual_seed(seed)
@@ -17,4 +19,4 @@ def set_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.benchmark = False   

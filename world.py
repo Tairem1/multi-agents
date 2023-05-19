@@ -6,12 +6,12 @@ import json
 
 
 class World:
-    def __init__(self, dt: float, width: float, height: float, ppm: float = 8):
+    def __init__(self, dt: float, width: float, height: float, ppm: float = 8, window_name: str = "CARLO"):
         self.dynamic_agents = []
         self.static_agents = []
         self.t = 0 # simulation time
         self.dt = dt # simulation time step
-        self.visualizer = Visualizer(width, height, ppm=ppm)
+        self.visualizer = Visualizer(width, height, ppm=ppm, window_name=window_name)
         
         self.width_m, self.height_m = width, height
         

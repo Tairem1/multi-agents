@@ -35,8 +35,12 @@ class Scene(World):
                  reward_fn = None,
                  ppm: float = 8,
                  render = False,
-                 discrete_actions = True):
-        super().__init__(dt, width, height, ppm)
+                 testing=False,
+                 discrete_actions = True,
+                 window_name="CARLO",
+                 seed=0,
+                 obs_type='gcn'):
+        super().__init__(dt, width, height, ppm, window_name=window_name)
         self.scene_name = None
         self.traffic_controller = None
         self.routes = []
@@ -44,7 +48,7 @@ class Scene(World):
         self._render = render
         
         self._discrete_actions = discrete_actions
-        
+        self.testing = testing
         print('*'*50)
         print("Available commands: ")
         print("\t- Left click: tick on click")
@@ -60,6 +64,17 @@ class Scene(World):
         # Graph building parameters
         self.detection_radius = 30.0
         self.adjecency_threshold = 15.0
+        self.seed = seed
+        self.rng = np.random.RandomState(seed)
+        if self.testing:
+            self.timeout = 40.0
+        else:
+            self.timeout = 400.0
+            
+        if obs_type == 'gcn' or obs_type == 'gcn_speed' or obs_type == 'gcn_speed_route':
+            self.obs_type = obs_type
+        else:
+            raise Exception(f"Unexpected observation type: {obs_type}, expected 'gcn' or 'gcn_speed', or 'gcn_speed_route'")
         
     def draw_route(self, route, color='green'):
         for i in range(len(route)):
@@ -67,7 +82,7 @@ class Scene(World):
             
     def load_scene(self, scene_name):
         self.scene_name = scene_name
-        
+
         if scene_name == "scene01":
             ####################
             # CREATE BUILDINGS #
@@ -168,7 +183,10 @@ class Scene(World):
             self.draw_route(self.routes[3], 'orange')
             self.draw_route(self.routes[4], 'purple')
             
-            N_cars = np.random.randint(0, 14)
+            
+            N_cars = self.rng.randint(0, 10)
+            if self.testing:
+                print(f"TEST N_cars: {N_cars}")
             
             
             # Define ego vehicle
@@ -183,7 +201,9 @@ class Scene(World):
                                         ego_route_index=ego_route,
                                         initial_waypoint=initial_waypoint,
                                         goal_waypoint=goal_waypoint)
-            self.traffic_controller = TrafficController(self, ego_vehicle, N_cars=N_cars)
+            self.traffic_controller = TrafficController(self, ego_vehicle,  
+                                                        rng=self.rng,
+                                                        N_cars=N_cars)
     
             # Pedestrian is almost the same as Car. It is a "circle" object rather than a rectangle.
             # self.p1 = Pedestrian(Point(28,81), np.pi)
@@ -297,8 +317,20 @@ class Scene(World):
         nodes = torch.tensor(nodes_list, dtype=torch.float)
         edges = torch.tensor(edge_list, dtype=torch.long).t().contiguous().view(2, -1)
         
-        obs = Data(x=nodes, edge_index=edges)
-        return (obs, ego_vehicle.speed)
+        graph = Data(x=nodes, edge_index=edges)
+        
+        if self.obs_type == 'gcn':
+            obs = graph
+        elif self.obs_type == 'gcn_speed':
+            obs = (graph, ego_vehicle.speed)
+        elif self.obs_type == 'gcn_speed_route':
+            wp = self.traffic_controller.ego_controller.current_waypoint_index
+            route = self.routes[ego_vehicle.ego_route_index][wp:wp+10]
+            obs = (graph, ego_vehicle.speed, route)
+        else:
+            raise Exception('Unexpected observation type')
+        
+        return obs
     
     def _action_discrete_to_continuous(self, action):
         if action == Scene.ACTION_ACCELERATE:
@@ -327,10 +359,9 @@ class Scene(World):
         goal_reached = self._goal_reached()
         collision = self.collision_exists(self.ego_vehicle)
         
-        
-        if self.t > 400.0:
+        if self.t > self.timeout:
             done = True
-            reward = -0.25
+            reward = -5.0
             info['end_reason'] = 'timeout'
         elif goal_reached:
             done = True
@@ -342,6 +373,7 @@ class Scene(World):
             info['end_reason'] = 'collision_found'
         else:
             reward = -self.dt/5.0
+            # reward = 0.0
             # reward = self.ego_vehicle.speed
             done = False
             
@@ -379,6 +411,10 @@ class Scene(World):
         forward_vector = route[point+1] - route[point]
         heading = np.arctan2(forward_vector[1], forward_vector[0]) % (2*np.pi)
         return x, y, heading
+    
+    def reset_rng(self):
+        if self.testing:
+            self.rng = np.random.RandomState(self.seed)
         
         
         
