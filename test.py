@@ -28,9 +28,9 @@ def prepare_state_for_nn(state):
         raise Exception("Unsupported state type")
     return s
 
-checkpoint_dir = "./checkpoint/02_03_003/"
-# model_pth = checkpoint_dir + "reward_best.pth"
-model_pth = checkpoint_dir + "model_1000000.pth"
+checkpoint_dir = "./checkpoint/05_19_000/"
+model_pth = checkpoint_dir + "reward_best.pth"
+# model_pth = checkpoint_dir + "model_1000000.pth"
 
 with open(checkpoint_dir+"args.pkl", 'rb') as f:
     args = pickle.load(f)
@@ -44,29 +44,32 @@ env = Scene(dt,
             discrete_actions=True,
             testing=True,
             seed=1234,
-            obs_type=args['POLICY_NETWORK'])
-env.load_scene("scene01")
-
-agent = init_agent(Scene.ACTION_SIZE, 
-                   Scene.OBS_SIZE, 
-                   hidden_features=args['HIDDEN_FEATURES'],
-                   obs_type=args['POLICY_NETWORK'])
-agent.eval()
-agent.load_state_dict(torch.load(model_pth))
-
-done = False
-N_EPISODES = 20
-rewards = []
-for _ in range(N_EPISODES):
-    state, _ = env.reset()
-    for _ in range(10_000):
-        s = prepare_state_for_nn(state)
-        action = int(torch.argmax(agent(s)))
-        state, reward, terminated, truncated, info = env.step(action)
-        time.sleep(dt/4.0)
-        if terminated or truncated:
-            rewards.append(env.episode_reward)
-            print(f"Total reward: {env.episode_reward}")
-            break
-print(f"TEST\tMean Reward: {np.mean(rewards)}")
-env.close()
+            obs_type=args['POLICY_NETWORK'],
+            reward_configuration=args['REWARD'])
+try:
+    env.load_scene("scene01")
+    
+    agent = init_agent(Scene.ACTION_SIZE, 
+                       Scene.OBS_SIZE, 
+                       hidden_features=args['HIDDEN_FEATURES'],
+                       obs_type=args['POLICY_NETWORK'])
+    agent.eval()
+    agent.load_state_dict(torch.load(model_pth))
+    
+    done = False
+    N_EPISODES = 10
+    rewards = []
+    for _ in range(N_EPISODES):
+        state, _ = env.reset()
+        for _ in range(10_000):
+            s = prepare_state_for_nn(state)
+            action = int(torch.argmax(agent(s)))
+            state, reward, terminated, truncated, info = env.step(action)
+            time.sleep(dt/4.0)
+            if terminated or truncated:
+                rewards.append(env.episode_reward)
+                print(f"Total reward: {env.episode_reward}")
+                break
+    print(f"TEST\tMean Reward: {np.mean(rewards)}")
+finally:
+    env.close()

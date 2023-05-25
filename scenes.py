@@ -5,9 +5,10 @@ Created on Fri Nov 11 11:18:32 2022
 @author: lucac
 """
 from world import World
-from agents import Painting, RectangleBuilding, Car, Pedestrian, EgoVehicle
+from agents import Painting, RectangleBuilding, Car, Pedestrian, EgoVehicle, CirclePainting
 from geometry import Point
 import numpy as np
+import random
 from traffic_controller import TrafficController
 
 import torch
@@ -39,7 +40,8 @@ class Scene(World):
                  discrete_actions = True,
                  window_name="CARLO",
                  seed=0,
-                 obs_type='gcn'):
+                 obs_type='gcn',
+                 reward_configuration=None):
         super().__init__(dt, width, height, ppm, window_name=window_name)
         self.scene_name = None
         self.traffic_controller = None
@@ -49,6 +51,7 @@ class Scene(World):
         
         self._discrete_actions = discrete_actions
         self.testing = testing
+        self.reward_configuration = reward_configuration
         print('*'*50)
         print("Available commands: ")
         print("\t- Left click: tick on click")
@@ -186,16 +189,30 @@ class Scene(World):
             self.draw_route(self.routes[4], 'purple')
             
             
-            N_cars = self.rng.randint(0, 10)
+            # N_cars = self.rng.randint(0, 10)
+            N_cars = self.rng.poisson(5.0 )
             if self.testing:
                 print(f"TEST N_cars: {N_cars}")
             
             
             # Define ego vehicle
-            ego_route = 3
-            initial_waypoint = 18 #np.random.randint(10, 18)
-            goal_waypoint = 28
-            x, y, heading = self.get_spawn_transform(ego_route, initial_waypoint)
+            # ego_route = 3
+            # initial_waypoint = 18 #np.random.randint(10, 18)
+            # goal_waypoint = 25
+            # ego_route = 2
+            # initial_waypoint = 40
+            # goal_waypoint = 60
+            initial_conditions = [(3, 18, 25), 
+                                  (2, 40, 60),
+                                  (4, 16, 28)]
+            ego_route, initial_waypoint, goal_waypoint = random.choice(initial_conditions)
+            
+            # Draw the goal point
+            xg, yg, h = self.get_transform(ego_route, goal_waypoint)
+            goal = CirclePainting(Point(xg, yg), 1.0, color='pink')
+            self.add(goal)
+            
+            x, y, heading = self.get_transform(ego_route, initial_waypoint)
             ego_vehicle = EgoVehicle(   Point(x, y), 
                                         heading, 
                                         color='blue', 
@@ -285,14 +302,14 @@ class Scene(World):
         
         nearby_agents = []
         
-        self.closest_vehicle_distance = self.max_d
+        self.closest_vehicle_distance = self.detection_radius
         for a in self.dynamic_agents:
             p_a = np.array([a.x, a.y])
-            d_a_ego = np.linalg.norm(p_a - p_ego) 
+            d_a_ego = np.linalg.norm(p_a - p_ego)
             if d_a_ego < self.detection_radius:
-                nearby_agents.append(a)
-                if d_a_ego < self.closest_vehicle_distance:
+                if a is not ego_vehicle:
                     self.closest_vehicle_distance = d_a_ego
+                nearby_agents.append(a)
                 
         for i, a in enumerate(nearby_agents):
             p_a = np.array([a.x, a.y])
@@ -376,19 +393,19 @@ class Scene(World):
         
         if self.t > self.timeout:
             done = True
-            reward = -1.0
+            reward = self.reward_configuration['timeout']
             info['end_reason'] = 'timeout'
         elif goal_reached:
             done = True
-            reward = +1.0
+            reward = self.reward_configuration['goal_reached']
             info['end_reason'] = 'goal_reached'
         elif collision:
             done = True
-            reward = -1.0
+            reward = self.reward_configuration['collision']
             info['end_reason'] = 'collision_found'
         else:
             done = False
-            # reward = 0.0
+            
             v = self.ego_vehicle.speed
             if v < 0.8 * self.speed_limit:
                 r_velocity = 1.25 * (v / self.speed_limit)
@@ -399,17 +416,16 @@ class Scene(World):
             
             r_idle = -1.0 if (v < 5.0/3.6) else 0.0
             r_action = -np.abs(self.acceleration)
-            r_proximity = -1.0 + self.closest_vehicle_distance/self.max_d
+            r_proximity = -1.0 + self.closest_vehicle_distance/self.detection_radius
             
-            k_velocity = 0.03
-            k_action = 0.01
-            k_idle = 0.01
-            k_proximity = 0.2
+            r_velocity *= self.reward_configuration['velocity']
+            r_action *= self.reward_configuration['action']
+            r_idle *= self.reward_configuration['idle']
+            r_proximity *= self.reward_configuration['proximity']
             
-            reward =    k_velocity * r_velocity + \
-                        k_action * r_action + \
-                        k_idle * r_idle + \
-                        k_proximity * r_proximity
+            # print(f"Reward: v {r_velocity:.4f}, a {r_action:.4f}, idle: {r_idle:.4f}, proximity: {r_proximity:.4f}")
+            
+            reward = r_velocity + r_action + r_idle + r_proximity
             
         return reward, done, info
       
@@ -438,7 +454,7 @@ class Scene(World):
         self.episode_reward += reward
         return obs, reward, done, False, info
     
-    def get_spawn_transform(self, route_index, point=0):
+    def get_transform(self, route_index, point=0):
         route = self.routes[route_index]
         x, y = route[point]
         

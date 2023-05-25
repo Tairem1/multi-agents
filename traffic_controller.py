@@ -172,13 +172,6 @@ class TrafficController:
         self.traffic = pd.DataFrame(columns=['id', 'route', 'vehicle', 'controller'])
         self.rng = rng
         
-        for _ in range(N_cars):
-            route_index = self.rng.choice(self.world.non_ego_routes)
-            for _ in range(300):
-                if self.spawn_car(route_index, random_point=True):
-                    break
-                else:
-                    continue
         self.ego_vehicle = ego_vehicle
         self.add_ego_vehicle(self.ego_vehicle)
         self.ego_controller = CarController(self.world.routes[self.ego_vehicle.ego_route_index], 
@@ -186,6 +179,14 @@ class TrafficController:
                                             self.rng,
                                             initial_waypoint=self.ego_vehicle.initial_waypoint,
                                             goal_waypoint=self.ego_vehicle.goal_waypoint)
+        
+        for _ in range(N_cars):
+            route_index = self.rng.choice(self.world.non_ego_routes)
+            for _ in range(300):
+                if self.spawn_car(route_index, random_point=True):
+                    break
+                else:
+                    continue
                     
     def tick(self):
         for index, row in self.traffic.iterrows():
@@ -238,7 +239,7 @@ class TrafficController:
             i = self.rng.randint(0, len(self.world.routes[route_index])-1)
         else: 
             i = 0
-        x, y, heading = self.world.get_spawn_transform(route_index, i)
+        x, y, heading = self.world.get_transform(route_index, i)
         initial_velocity = self.rng.uniform(3.0, 5.0) * np.array([
             np.cos(heading), np.sin(heading)])
         

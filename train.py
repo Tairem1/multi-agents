@@ -45,6 +45,12 @@ def parse():
                         help="Number of features in the hidden layers.")
     parser.add_argument('--network_update_frequency', type=int, default=100,
                         help="update target network every.")
+    
+    # Reward parameters
+    parser.add_argument('--reward_parameters', '--list', nargs='+',
+                        default=[-1.0, +1.0, -1.0, 0.03, 0.02, 0.01, 0.02],
+                        type=float,
+                        help="Reward parameters to be passed as a list (timeout, goal_reached, collision, velocity, action, idle, proximity).")
     args = parser.parse_args()
     return args
     
@@ -66,6 +72,18 @@ def save_args(checkpoint_dir, args):
 if __name__ == "__main__":
     args = parse()
     checkpoint_dir = create_checkpoint_directory()
+    
+    reward_configuration = {
+            'timeout': args.reward_parameters[0],
+            'goal_reached': args.reward_parameters[1],
+            'collision': args.reward_parameters[2],
+            'velocity': args.reward_parameters[3],
+            'action': args.reward_parameters[4],
+            'idle': args.reward_parameters[5],
+            'proximity': args.reward_parameters[6],
+    }
+    print(reward_configuration)
+    
     config = {
         'EPISODES_PER_EPOCH': 40,  
         'BATCH_SIZE': args.batch_size,
@@ -75,15 +93,17 @@ if __name__ == "__main__":
         'EPS_DECAY': int(2*args.total_timesteps/4),
         'TOTAL_TIMESTEPS': args.total_timesteps,
         'TEST_EVERY': args.total_timesteps//20,
-        'REPLAY_BUFFER_SIZE': 100_000,
+        'REPLAY_BUFFER_SIZE': 10_000,
         'LR': args.learning_rate,
         'NETWORK_UPDATE_FREQUENCY': args.network_update_frequency,
         'START_LEARN': 1_000,
         'RANDOM_SEED': args.seed,
         'CHECKPOINT_DIR': checkpoint_dir,
         'HIDDEN_FEATURES': args.hidden_features,
-        'N_TESTING_EPISODES': 40,
-        'POLICY_NETWORK': args.policy_network # Can be 'gcn', 'gcn_speed', 'gcn_speed_route'
+        'N_TESTING_EPISODES': 20,
+        'POLICY_NETWORK': args.policy_network, # Can be 'gcn', 'gcn_speed', 'gcn_speed_route'
+        'REWARD': reward_configuration,
+        'COLLISION_PARAMETER': reward_configuration['collision'],
         }
     
     print(args)
@@ -92,7 +112,7 @@ if __name__ == "__main__":
     save_args(checkpoint_dir, config)
     
     if args.wandb:
-        wandb.init(project="GCN-DRL", group="Intersection", job_type="train")
+        wandb.init(project="GCN-DRL", group=args.group_name, job_type="train")
         wandb.config.update(config)
     
     set_seed(args.seed)
@@ -109,7 +129,8 @@ if __name__ == "__main__":
                   discrete_actions=True,
                   window_name="Training Environment",
                   seed=args.seed,
-                  obs_type=args.policy_network)
+                  obs_type=args.policy_network,
+                  reward_configuration=reward_configuration)
     env.load_scene("scene01")
     
     # test_env = Scene(dt, 

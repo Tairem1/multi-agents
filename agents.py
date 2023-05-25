@@ -84,3 +84,15 @@ class Painting(RectangleEntity):
         super(Painting, self).__init__(center, heading, size, movable, friction)
         self.color = color
         self.collidable = False
+        
+class CirclePainting(CircleEntity):
+    def __init__(self, center: Point, radius: float, color: str = 'gray26'):
+        heading = 0.
+        movable = True
+        friction = 0.
+        super(CirclePainting, self).__init__(center, heading, radius, movable, friction)
+        self.color = color
+        self.collidable = False
+        
+        
+
