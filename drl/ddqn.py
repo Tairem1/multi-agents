@@ -187,7 +187,7 @@ class DDQN:
         if self.scheduler is not None:                  
             print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, eps: {self.epsilon}, lr: {self.scheduler.get_last_lr()}")
         else:
-            print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, eps: {self.epsilon}")
+            print(f"\tTRAIN: Episode reward: {episode_reward}, {info}, eps: {self.epsilon}, N_cars: {self.env.traffic_controller.N_cars}")
 
     def _end_of_epoch(self):
         return (self._episode_count % self.episodes_per_epoch) == 0
@@ -241,10 +241,12 @@ class DDQN:
         
     def _evaluate_model(self, n_testing_episodes=5):
         rewards = []
+        seed = 0
         with torch.no_grad():
             self.policy.eval()
-            self.test_env.reset_rng()
             for i in range(n_testing_episodes):
+                self.test_env.reset_rng(seed)
+                seed += 1
                 total_reward = 0.0
                 state, info = self.test_env.reset(seed=i)
                 state = self._move_state_to_device(state)

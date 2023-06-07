@@ -215,11 +215,11 @@ class TrafficController:
         y = self.ego_vehicle.center.y
         d1 = np.abs(y - self.world.routes[0][0,1])
         d2 = np.abs(y - self.world.routes[1][0,1])
-        if d1 < 2.5:
+        if d1 < 2.9:
             self.traffic.at[self.ego_index, 'route'] = 0
             waypoint = np.argmin(np.linalg.norm(self.world.routes[0] - np.array([x,y]), axis=1))
             self.traffic.at[self.ego_index, 'waypoint'] = waypoint
-        elif d2 < 2.5:
+        elif d2 < 2.9:
             self.traffic.at[self.ego_index, 'route'] = 1
             waypoint = np.argmin(np.linalg.norm(self.world.routes[1] - np.array([x,y]), axis=1))
             self.traffic.at[self.ego_index, 'waypoint'] = waypoint

@@ -41,6 +41,7 @@ class Scene(World):
                  window_name="CARLO",
                  seed=0,
                  obs_type='gcn',
+                 adjacency_norm='ones',
                  reward_configuration=None):
         super().__init__(dt, width, height, ppm, window_name=window_name)
         self.scene_name = None
@@ -52,21 +53,22 @@ class Scene(World):
         self._discrete_actions = discrete_actions
         self.testing = testing
         self.reward_configuration = reward_configuration
-        print('*'*50)
-        print("Available commands: ")
-        print("\t- Left click: tick on click")
-        print("\t- Right click: display traffic status")
-        print("\t- WASD: control ego-vehicle")
-        print("\t- O: print observation for DRL")
-        print("\t- R: reset the environment")
-        print("\t- F: forward tick")
-        print('*'*50)
+        # print('*'*50)
+        # print("Available commands: ")
+        # print("\t- Left click: tick on click")
+        # print("\t- Right click: display traffic status")
+        # print("\t- WASD: control ego-vehicle")
+        # print("\t- O: print observation for DRL")
+        # print("\t- R: reset the environment")
+        # print("\t- F: forward tick")
+        # print('*'*50)
         self.acceleration = 0.0
         self.steering = 0.0
+        self.adjacency_norm = adjacency_norm
         
         # Graph building parameters
-        self.detection_radius = 30.0
-        self.adjecency_threshold = 15.0
+        self.detection_radius = 40.0
+        self.adjecency_threshold = 30.0
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         if self.testing:
@@ -181,31 +183,20 @@ class Scene(World):
             self.routes.append(r4)
             self.routes.append(r5)
             self.non_ego_routes = [0, 1]
-            
             self.draw_route(self.routes[0], 'green')
             self.draw_route(self.routes[1], 'white')
             self.draw_route(self.routes[2], 'red')
             self.draw_route(self.routes[3], 'orange')
             self.draw_route(self.routes[4], 'purple')
             
-            
             # N_cars = self.rng.randint(0, 10)
             N_cars = self.rng.poisson(5.0 )
-            if self.testing:
-                print(f"TEST N_cars: {N_cars}")
-            
             
             # Define ego vehicle
-            # ego_route = 3
-            # initial_waypoint = 18 #np.random.randint(10, 18)
-            # goal_waypoint = 25
-            # ego_route = 2
-            # initial_waypoint = 40
-            # goal_waypoint = 60
             initial_conditions = [(3, 18, 25), 
                                   (2, 40, 60),
                                   (4, 16, 28)]
-            ego_route, initial_waypoint, goal_waypoint = random.choice(initial_conditions)
+            ego_route, initial_waypoint, goal_waypoint = initial_conditions[self.rng.choice(range(len(initial_conditions)))]
             
             # Draw the goal point
             xg, yg, h = self.get_transform(ego_route, goal_waypoint)
@@ -213,10 +204,13 @@ class Scene(World):
             self.add(goal)
             
             x, y, heading = self.get_transform(ego_route, initial_waypoint)
+            v0 = self.rng.uniform(0, 5.0)
             ego_vehicle = EgoVehicle(   Point(x, y), 
                                         heading, 
                                         color='blue', 
-                                        velocity=Point(0, 0), 
+                                        velocity=Point(v0*np.cos(heading), 
+                                                        v0*np.sin(heading)), 
+                                        # velocity=Point(0,0), 
                                         ego_route_index=ego_route,
                                         initial_waypoint=initial_waypoint,
                                         goal_waypoint=goal_waypoint)
@@ -232,6 +226,7 @@ class Scene(World):
             # self.p2 = Pedestrian(Point(30, 90), np.pi/2)
             # self.p2.max_speed = 5.0
             # self.add(self.p2)
+            return N_cars
            
     def render(self):
         if self._render:
@@ -299,29 +294,40 @@ class Scene(World):
         
         nodes_list = []
         edge_list = []
+        edge_weight = []
         
         nearby_agents = []
         
         self.closest_vehicle_distance = self.detection_radius
+        
+        self.graph_plot = {}
+        self.graph_plot['nodes'] = []
+        self.graph_plot['edges'] = []
+        
         for a in self.dynamic_agents:
             p_a = np.array([a.x, a.y])
             d_a_ego = np.linalg.norm(p_a - p_ego)
-            if d_a_ego < self.detection_radius:
+            if d_a_ego < self.detection_radius and a.collidable:
                 if a is not ego_vehicle:
                     self.closest_vehicle_distance = d_a_ego
                 nearby_agents.append(a)
                 
         for i, a in enumerate(nearby_agents):
             p_a = np.array([a.x, a.y])
+            self.graph_plot['nodes'].append(CirclePainting(Point(a.x, a.y), radius=0.5, color='green'))
             
             # Create nodes
             if isinstance(a, Car):
+                vx = a.speed * np.cos(a.heading) / self.speed_normalization_factor
+                vy = a.speed * np.sin(a.heading) / self.speed_normalization_factor
                 node = [#1.0, 
                         #0.0,
                         a.x/self.width_m, #- ego_vehicle.x, 
                         a.y/self.height_m, #- ego_vehicle.y
-                        a.heading/(2*np.pi),
-                        a.speed/self.speed_normalization_factor,
+                        # a.heading/(2*np.pi),
+                        # a.speed/self.speed_normalization_factor,
+                        vx,
+                        vy,
                         1.0, # distance to closest agent
                         ]
             else:
@@ -340,17 +346,46 @@ class Scene(World):
                 if (i != j):
                     p_b = np.array([b.x, b.y])
                     d_ab = np.linalg.norm(p_a - p_b)
+                    
+                    # Connect the vehicles if their distance is below adjacency threshold
                     if d_ab < self.adjecency_threshold:
                         edge_list.append([i, j])
+                        
+                        # center = (p_b + p_a) / 2.0
+                        # center = Point(center[0], center[1])
+                        # size = Point(np.linalg.norm(p_b - p_a), 0.02)
+                        # y = p_b[1] - p_a[1]
+                        # x = p_b[0] - p_a[0]
+                        # heading = np.arctan2(y, x)
+                        # self.graph_plot['edges'].append(Painting(center, size, color='green', heading=heading))
+                        
+                        if self.adjacency_norm.lower() == 'l2':
+                            edge_weight.append(1.0/d_ab)
+                        elif self.adjacency_norm.lower() == "ones":
+                            edge_weight.append(1.0)
+                        else:
+                            raise Exception(f"Unexpected adjacency matrix norm {self.adjacency_norm}")
+                        
+                    # Find the closest vehicle
                     if d_ab < min_d:
                         node[4] = d_ab / self.max_d
                         min_d = d_ab
+                        
             nodes_list.append(node)
             
         nodes = torch.tensor(nodes_list, dtype=torch.float)
         edges = torch.tensor(edge_list, dtype=torch.long).t().contiguous().view(2, -1)
-        self.graph = Data(x=nodes, edge_index=edges)
         
+        
+        if self.adjacency_norm.lower() == 'l2':
+            edge_weight = torch.tensor(edge_weight, dtype=torch.long).t().contiguous().view(-1, 1)
+            self.graph = Data(x=nodes, edge_index=edges, edge_weight=edge_weight)
+        elif self.adjacency_norm.lower() == "ones":
+            self.graph = Data(x=nodes, edge_index=edges)
+        else:
+            raise Exception(f"Unexpected adjacency matrix norm {self.adjacency_norm}")
+        
+
         if self.obs_type == 'gcn':
             obs = self.graph
         elif self.obs_type == 'gcn_speed':
@@ -402,7 +437,7 @@ class Scene(World):
         elif collision:
             done = True
             reward = self.reward_configuration['collision']
-            info['end_reason'] = 'collision_found'
+            info['end_reason'] = 'collision'
         else:
             done = False
             
@@ -433,12 +468,21 @@ class Scene(World):
         self.t = 0
         self.dynamic_agents = []
         self.static_agents = []
-        self.load_scene(self.scene_name)
+        N_cars = self.load_scene(self.scene_name)
         self.episode_reward = 0.0
-        return self._get_observation(), {}
+        return self._get_observation(), {'N_cars': N_cars}
         
     def step(self, action):
+        for x in self.graph_plot['nodes']:
+            self.add(x)
+        for x in self.graph_plot['edges']:
+            self.add(x)
         self.render()
+        for x in self.graph_plot['nodes']:
+            self.pop(x)
+        for x in self.graph_plot['edges']:
+            self.pop(x)
+        
         
         if self._discrete_actions:
             _, self.acceleration = self._action_discrete_to_continuous(action)
@@ -462,9 +506,12 @@ class Scene(World):
         heading = np.arctan2(forward_vector[1], forward_vector[0]) % (2*np.pi)
         return x, y, heading
     
-    def reset_rng(self):
+    def reset_rng(self, seed=None):
         if self.testing:
-            self.rng = np.random.RandomState(self.seed)
+            if seed is None:
+                self.rng = np.random.RandomState(self.seed)
+            else:
+                self.rng = np.random.RandomState(seed)
         
         
         

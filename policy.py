@@ -6,7 +6,7 @@ Created on Tue Jan 31 17:22:55 2023
 """
 
 import torch
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv, SAGEConv, GATConv
 from torch_geometric.nn import aggr
 from torch_geometric.nn import BatchNorm as gBatchNorm
 import torch.nn as nn
@@ -94,7 +94,12 @@ class GCNPolicySpeed(nn.Module):
     
     
 class GCNPolicySpeedRoute(nn.Module):
-    def __init__(self, n_features, n_actions, hidden_features=16):
+    def __init__(self, 
+                 n_features, 
+                 n_actions, 
+                 hidden_features=16,
+                 conv_layer='GCN',
+                 n_conv_layers=2):
         super().__init__()
         INPUT_ROUTE_LEN = 10
         ENCODED_SPEED_DIM = 4
@@ -102,21 +107,48 @@ class GCNPolicySpeedRoute(nn.Module):
 
         self._n_features = n_features
         self._n_actions = n_actions
+        self.n_conv_layers = n_conv_layers
         
-        self.conv1 = GCNConv(n_features, hidden_features)
-        self.batch_norm1 = gBatchNorm(hidden_features)
-        self.relu1 = nn.ReLU()
-        self.conv2 = GCNConv(hidden_features, hidden_features)
-        self.batch_norm2 = gBatchNorm(hidden_features)
-        self.relu2 = nn.ReLU()
+        if conv_layer.lower() == 'gcn':
+            conv = GCNConv
+        elif conv_layer.lower() == 'graphsage':
+            conv = SAGEConv
+        elif conv_layer.lower() == 'gatconv':
+            conv = GATConv
+        else:
+            raise Exception(f'Unexpected GCN convolutional layer: {conv_layer}')
+          
+          
+        # Node embedding operation
+        self.node_embedding = nn.Sequential(
+            nn.Linear(n_features, n_features),
+            nn.BatchNorm1d(n_features), 
+            nn.ReLU())  
+          
+        # Define convolutional layers
+        self.convs = nn.ModuleList()
+        self.convs.append(conv(n_features, hidden_features))
+        for _ in range(1, n_conv_layers):
+            self.convs.append(conv(hidden_features, hidden_features))
         
-        self.global_pooling = aggr.MaxAggregation()
+        # Batch normalizations and Prelus
+        self.bNorms = nn.ModuleList()
+        self.prelus = nn.ModuleList()
+        for _ in range(n_conv_layers):
+            self.bNorms.append(gBatchNorm(hidden_features))
+            self.prelus.append(nn.ReLU())
         
+        # Final graph pooling layer
+        # self.global_pooling = aggr.MaxAggregation()
+        self.global_pooling = aggr.MeanAggregation()
+        
+        # Speed is encoded via a multilayer perceptron
         self.speed_encoder = nn.Sequential(
             nn.Linear(1, ENCODED_SPEED_DIM),
             nn.BatchNorm1d(ENCODED_SPEED_DIM),
             nn.ReLU())
         
+        # Route is also encoded to a lower dimension via convolutional layers
         self.route_encoder = nn.Sequential(
             nn.Conv1d(2, 1, kernel_size=3, padding=1),
             nn.BatchNorm1d(1),
@@ -124,36 +156,32 @@ class GCNPolicySpeedRoute(nn.Module):
             nn.Flatten(),
             nn.Linear(INPUT_ROUTE_LEN, ENCODED_ROUTE_DIM))
         
+        # Final outuput layer 
         self.output_layer = nn.Sequential(
             nn.Linear(hidden_features + \
-                                 ENCODED_SPEED_DIM + \
-                                 ENCODED_ROUTE_DIM, 16),
+                    ENCODED_SPEED_DIM + \
+                    ENCODED_ROUTE_DIM, 16),
             nn.BatchNorm1d(16),
             nn.ReLU(),
-            nn.Linear(16, n_actions)
-            )
-        
-        # self.linear1 = nn.Linear(hidden_features + \
-        #                          ENCODED_SPEED_DIM + \
-        #                          ENCODED_ROUTE_DIM, 16)
-        # self.relu3 = nn.ReLU()
-        # self.linear2 = nn.Linear(16, n_actions)
+            nn.Linear(16, n_actions))
         
     def forward(self, batch):
         if isinstance(batch, tuple):
             graph_batch, speed_batch, route_batch = batch
         else:
             raise(Exception(f"Data must be a tuple, got {type(batch)}"))
-            
-        x = self.conv1(graph_batch.x, graph_batch.edge_index, graph_batch.edge_weight)
-        x = self.batch_norm1(x)
-        x = self.relu1(x)
-        x = self.conv2(x, graph_batch.edge_index, graph_batch.edge_weight)
-        x = self.batch_norm2(x)
-        x = self.relu2(x)
+        
+        # Graph Convolution
+        x = graph_batch.x
+        x = self.node_embedding(x)
+        for i in range(self.n_conv_layers):
+            x = self.convs[i](x, graph_batch.edge_index, graph_batch.edge_weight)
+            x = self.bNorms[i](x)
+            x = self.prelus[i](x)
         x = self.global_pooling(x, graph_batch.batch)
         
-        v = self.speed_encoder(speed_batch)
+        v = speed_batch
+        v = self.speed_encoder(v)
         r = self.route_encoder(route_batch.permute(0, 2, 1))
         
         h = torch.cat((x,v,r), dim=1)
@@ -169,7 +197,7 @@ class GCNPolicySpeedRoute(nn.Module):
         return self._n_features
     
 
-def init_agent(n_actions, node_features, hidden_features, obs_type):
+def init_agent(n_actions, node_features, hidden_features, obs_type, **kwargs):
     if obs_type == 'gcn':
         agent = GCNPolicy(node_features, 
                           n_actions,
@@ -181,7 +209,9 @@ def init_agent(n_actions, node_features, hidden_features, obs_type):
     elif obs_type == 'gcn_speed_route':
         agent = GCNPolicySpeedRoute(node_features, 
                           n_actions,
-                          hidden_features=hidden_features)
+                          hidden_features=hidden_features,
+                          conv_layer=kwargs['gcn_conv_layer'],
+                          n_conv_layers=kwargs['n_conv_layers'])
     else:
         raise Exception(f"Unexpected argument 'obs_type'. Value: {obs_type}, expected 'gcn', 'gcn_speed' or 'gcn_speed_route'")
     return agent      
