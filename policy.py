@@ -196,6 +196,7 @@ class GCNPolicySpeedRoute(nn.Module):
     def num_node_features(self):
         return self._n_features
     
+    
 
 def init_agent(n_actions, node_features, hidden_features, obs_type, **kwargs):
     if obs_type == 'gcn':

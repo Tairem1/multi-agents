@@ -72,7 +72,7 @@ class Scene(World):
         self.seed = seed
         self.rng = np.random.RandomState(seed)
         if self.testing:
-            self.timeout = 40.0
+            self.timeout = 400.0
         else:
             self.timeout = 400.0
             
@@ -322,8 +322,8 @@ class Scene(World):
                 vy = a.speed * np.sin(a.heading) / self.speed_normalization_factor
                 node = [#1.0, 
                         #0.0,
-                        a.x/self.width_m, #- ego_vehicle.x, 
-                        a.y/self.height_m, #- ego_vehicle.y
+                        a.x/self.width_m - ego_vehicle.x, 
+                        a.y/self.height_m - ego_vehicle.y,
                         # a.heading/(2*np.pi),
                         # a.speed/self.speed_normalization_factor,
                         vx,
@@ -333,8 +333,8 @@ class Scene(World):
             else:
                 node = [#0.0, 
                         #1.0,
-                        a.x/self.width_m, #- ego_vehicle.x, 
-                        a.y/self.height_m, #- ego_vehicle.y
+                        a.x/self.width_m - ego_vehicle.x, 
+                        a.y/self.height_m - ego_vehicle.y,
                         a.heading/(2*np.pi),
                         a.speed/self.speed_normalization_factor,
                         1.0, # distance to closest agent
