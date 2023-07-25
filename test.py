@@ -33,12 +33,8 @@ def prepare_state_for_nn(state):
     return s
 
 
-agents = ['023']
-models = [
-    # "reward_best.pth", 
-    "model_1900000.pth",
-          ]
-RENDER = False
+agents = ['015']
+RENDER = True
 
 for x in agents:
     checkpoint_dir = f"./checkpoint/reward_tuning/{x}/"
@@ -48,7 +44,7 @@ for x in agents:
                                              'timeout':0, 
                                              'reward': 0.0}}
     for model in models:
-        # model_pth = checkpoint_dir + "model_200000.pth"
+        model_pth = checkpoint_dir + "reward_best.pth"
         
         with open(checkpoint_dir+"args.pkl", 'rb') as f:
             args = pickle.load(f)
