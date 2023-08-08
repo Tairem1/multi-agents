@@ -72,13 +72,17 @@ class CarController:
                  vehicle, 
                  rng,
                  initial_waypoint=0,
-                 goal_waypoint = 30,
+                 goal_waypoint = None,
                  acceleration_controller=None):
         self.route = route                  # The route we want to follow
         
         self.vehicle = vehicle              # the vehicle we are controlling
         self.current_waypoint_index = initial_waypoint
-        self.goal_waypoint = goal_waypoint
+        
+        if goal_waypoint is None:
+            self.goal_waypoint = len(route) - 1
+        else:    
+            self.goal_waypoint = goal_waypoint
         
         self._steering = 0.0
         self._acceleration = 0.0
@@ -93,15 +97,16 @@ class CarController:
             raise Exception(f'Unexpected acceleration controller: {self.accelerationController}')
     
     def update_waypoint(self):
-        # Returns False if the route is over, True otherwise
-        vehicle_position = np.array([self.vehicle.center.x, 
-                                     self.vehicle.center.y])
-        next_waypoint_index = int(self.current_waypoint_index + 1)
-        forward_vector = self.route[next_waypoint_index] \
-                        - self.route[self.current_waypoint_index]
-        if np.dot(forward_vector, 
-                  vehicle_position - self.route[next_waypoint_index]) > 0:
-            self.current_waypoint_index = next_waypoint_index
+        if self.current_waypoint_index < self.goal_waypoint:
+            # Returns False if the route is over, True otherwise
+            vehicle_position = np.array([self.vehicle.center.x, 
+                                         self.vehicle.center.y])
+            next_waypoint_index = int(self.current_waypoint_index + 1)
+            forward_vector = self.route[next_waypoint_index] \
+                            - self.route[self.current_waypoint_index]
+            if np.dot(forward_vector, 
+                      vehicle_position - self.route[next_waypoint_index]) > 0:
+                self.current_waypoint_index = next_waypoint_index
             
         if self.current_waypoint_index == len(self.route) - 1:
             return False
@@ -109,8 +114,8 @@ class CarController:
             return True
         
     @property
-    def goal_reached(self):
-        return self.goal_waypoint == self.current_waypoint_index
+    def vehicle_goal_reached(self):
+        return self.goal_waypoint <= self.current_waypoint_index
         
     def stanely_controller(self, front_vehicle=None):
         if self.update_waypoint():
@@ -174,6 +179,7 @@ class TrafficController:
         
         self.ego_vehicle = ego_vehicle
         self.ego_pedestrian = ego_pedestrian
+        self.current_ped_waypoint = ego_pedestrian.initial_waypoint
         
         self.add_ego_vehicle(self.ego_vehicle)
         self.add_ego_pedestrian(self.ego_pedestrian)
@@ -191,6 +197,23 @@ class TrafficController:
                     break
                 else:
                     continue
+    
+    @property
+    def ego_vehicle_current_waypoint(self):
+        return self.ego_controller.current_waypoint_index
+    
+    def update_pedestrian_waypoint(self):
+        # Returns False if the route is over, True otherwise
+        p = np.array([self.ego_pedestrian.center.x, 
+                      self.ego_pedestrian.center.y])
+        next_waypoint_index = int(self.current_ped_waypoint + 1)
+        route = self.world.pedestrian_routes[self.ego_pedestrian.ego_route_index]
+        
+        forward_vector = route[next_waypoint_index] \
+                        - route[self.current_ped_waypoint]
+        if np.dot(forward_vector, 
+                  p - route[next_waypoint_index]) > 0:
+            self.current_ped_waypoint = next_waypoint_index
                     
     def tick(self):
         for index, row in self.traffic.iterrows():
@@ -247,7 +270,7 @@ class TrafficController:
         else:
             self.traffic.at[self.ego_pedestrian_index, 'route'] = None
             self.traffic.at[self.ego_pedestrian_index, 'waypoint'] = None 
-        
+        self.update_pedestrian_waypoint()
         ######################################################################
         self.traffic.reset_index()
         self.update_front_vehicles()

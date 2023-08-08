@@ -18,11 +18,23 @@ import torch_geometric
 import networkx as nx
 
 from traffic_controller import CarController
-
+from policy import init_agent
 from util.timer import Timer
 
 t = Timer()
 
+
+def prepare_state_for_nn(state):
+    if isinstance(state, tuple):
+        if len(state) == 2:
+            s = (state[0], torch.tensor([[state[1]]]))
+        elif len(state) == 3:
+            s = (state[0], 
+                 torch.tensor([[state[1]]], dtype=torch.float32),
+                 torch.tensor([state[2]], dtype=torch.float32))
+    else:
+        raise Exception("Unsupported state type")
+    return s
 
 class Scene(World):
     ACTION_BRAKE = 0
@@ -43,7 +55,14 @@ class Scene(World):
                  obs_type='gcn',
                  adjacency_norm='ones',
                  reward_configuration=None,
-                 agent='vehicle'):
+                 agent='vehicle',
+                 vehicle_level='L0',
+                 pedestrian_level='L0',
+                 hidden_features=0, 
+                 gcn_conv_layer=0,
+                 n_conv_layers=0,
+                 path_to_vehicle_agent=None,
+                 path_to_pedestrian_agent=None):
         super().__init__(dt, width, height, ppm, window_name=window_name)
         self.scene_name = None
         self.traffic_controller = None
@@ -55,17 +74,12 @@ class Scene(World):
         self._discrete_actions = discrete_actions
         self.testing = testing
         self.reward_configuration = reward_configuration
-        # print('*'*50)
-        # print("Available commands: ")
-        # print("\t- Left click: tick on click")
-        # print("\t- Right click: display traffic status")
-        # print("\t- WASD: control ego-vehicle")
-        # print("\t- O: print observation for DRL")
-        # print("\t- R: reset the environment")
-        # print("\t- F: forward tick")
-        # print('*'*50)
+        
         self.acceleration_v = 0.0
         self.steering_v = 0.0
+        self.acceleration_p = 0.0
+        self.steering_p = 0.0
+        
         self.adjacency_norm = adjacency_norm
         
         self.ped_ai_cross = -1
@@ -75,7 +89,8 @@ class Scene(World):
         self.adjecency_threshold = 30.0
         self.seed = seed
         self.rng = np.random.RandomState(seed)
-        self.agent = agent
+        self.agent = agent # Pedestrian or Vehicle
+        
         if self.testing:
             self.timeout = 400.0
         else:
@@ -86,9 +101,37 @@ class Scene(World):
         else:
             raise Exception(f"Unexpected observation type: {obs_type}, expected 'gcn' or 'gcn_speed', or 'gcn_speed_route'")
         
-    def draw_route(self, route, color='green'):
-        for i in range(len(route)):
-            self.add(Painting(Point(route[i, 0], route[i, 1]), Point(0.5, 0.5), color))
+        if self.agent.lower() == 'pedestrian':
+            self.vehicle_level = vehicle_level
+            if vehicle_level != 'L0':
+                # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+                print("Loading vehicle agent...")
+                self.vehicle_agent = init_agent(Scene.ACTION_SIZE, 
+                                                Scene.OBS_SIZE, 
+                                                hidden_features=hidden_features,
+                                                obs_type=obs_type,
+                                                gcn_conv_layer=gcn_conv_layer,
+                                                n_conv_layers=n_conv_layers
+                                                )#.to(device)
+                self.vehicle_agent.eval()
+                self.vehicle_agent.load_state_dict(torch.load(path_to_vehicle_agent))
+                print("Loaded!")
+        elif self.agent.lower() == 'vehicle':
+            self.pedestrian_level = pedestrian_level
+            if pedestrian_level != 'L0':
+                # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+                print("Loading pedestrian agent...")
+                self.pedestrian_agent = init_agent(Scene.ACTION_SIZE, 
+                                                Scene.OBS_SIZE, 
+                                                hidden_features=hidden_features,
+                                                obs_type=obs_type,
+                                                gcn_conv_layer=gcn_conv_layer,
+                                                n_conv_layers=n_conv_layers
+                                                )#.to(device)
+                self.pedestrian_agent.eval()
+                self.pedestrian_agent.load_state_dict(torch.load(path_to_pedestrian_agent))
+                print("Loaded!")
+            
             
     def load_scene(self, scene_name):
         self.scene_name = scene_name
@@ -102,6 +145,7 @@ class Scene(World):
             road1_width = 6
             road2_width = 12
             self.speed_limit = 50 / 3.6
+            self.ped_speed_limit = 2.0
             
             sx, sy = ((self.width_m - road1_width)/2, 
                       (self.height_m - road2_width)/2)
@@ -224,35 +268,44 @@ class Scene(World):
             # Draw pedestrian goal point
             N_points = 20
             initial_waypoint = 0
-            goaL_waypoint = N_points - 2
-        
+            goal_waypoint = N_points - 2
+            N_extra = 15
+            
             rp1 = np.linspace([b3_x + sx/2.0 - p_s/2.0, b3_y + sy/2.0 - p_s], 
                               [b4_x - sx/2.0 + p_s/2.0, b3_y + sy/2.0 - p_s], 
                               N_points)
+            rp1 = np.vstack((rp1, np.tile(rp1[-1,:], (N_extra, 1))))
             rp_1 = np.linspace([b4_x - sx/2.0 + p_s/2.0, b3_y + sy/2.0 - p_s], 
                                [b3_x + sx/2.0 - p_s/2.0, b3_y + sy/2.0 - p_s],
                               N_points)
+            rp_1 = np.vstack((rp_1, np.tile(rp_1[-1,:], (N_extra, 1))))
             
             rp3 = np.linspace([b3_x + sx/2.0 - p_s/2.0, b1_y - sy/2.0 + p_s/2.0], 
                               [b4_x - sx/2.0 + p_s/2.0, b1_y - sy/2.0 + p_s/2.0], 
                               N_points)
+            rp3 = np.vstack((rp3, np.tile(rp3[-1,:], (N_extra, 1))))
             rp_3 = np.linspace([b4_x - sx/2.0 + p_s/2.0, b1_y - sy/2.0 + p_s/2.0], 
                                [b3_x + sx/2.0 - p_s/2.0, b1_y - sy/2.0 + p_s/2.0],
                               N_points)
+            rp_3 = np.vstack((rp_3, np.tile(rp_3[-1,:], (N_extra, 1))))
             
             rp2 = np.linspace([b3_x + sx/2.0 - p_s/2.0, b3_y + sy/2.0 - p_s/2.0], 
                               [b3_x + sx/2.0 - p_s/2.0, b1_y - sy/2.0 + p_s], 
                               N_points)
+            rp2 = np.vstack((rp2, np.tile(rp2[-1,:], (N_extra, 1))))
             rp_2 = np.linspace([b3_x + sx/2.0 - p_s/2.0, b1_y - sy/2.0 + p_s/2.0], 
                                [b3_x + sx/2.0 - p_s/2.0, b3_y + sy/2.0 - p_s], 
                               N_points)
+            rp_2 = np.vstack((rp_2, np.tile(rp_2[-1,:], (N_extra, 1))))
             
             rp4 = np.linspace([b4_x - sx/2.0 + p_s/2.0, b3_y + sy/2.0 - p_s/2.0], 
                               [b4_x - sx/2.0 + p_s/2.0, b1_y - sy/2.0 + p_s], 
                               N_points)
+            rp4 = np.vstack((rp4, np.tile(rp4[-1,:], (N_extra, 1))))
             rp_4 = np.linspace([b4_x - sx/2.0 + p_s/2.0, b1_y - sy/2.0 + p_s/2.0], 
                                [b4_x - sx/2.0 + p_s/2.0, b3_y + sy/2.0 - p_s], 
                               N_points)
+            rp_4 = np.vstack((rp_4, np.tile(rp_4[-1,:], (N_extra, 1))))
             
             self.pedestrian_routes.append(rp1)
             self.pedestrian_routes.append(rp_1)
@@ -264,7 +317,7 @@ class Scene(World):
             self.pedestrian_routes.append(rp_4)
             route_index = self.rng.randint(0, len(self.pedestrian_routes))
 
-            xg, yg, h = self.get_transform(route_index, goaL_waypoint, pedestrian=True)
+            xg, yg, h = self.get_transform(route_index, goal_waypoint, pedestrian=True)
             goal_p = CirclePainting(Point(xg, yg), 1.0, color='green')
             self.add(goal_p)
             
@@ -288,15 +341,8 @@ class Scene(World):
     def render(self):
         if self._render:
             super().render()
-            self.visualizer.win.bind("<Button-3>", self.print_traffic)
-            self.visualizer.win.bind("<Button-1>", self.tick_on_click)
-            # self.visualizer.win.bind("<KeyPress>", self.key_press)
-            # self.visualizer.win.bind("<KeyRelease>", self.key_release)
+            self.visualizer.win.bind("<Button-1>", self.print_traffic)
             self.visualizer.win.focus_set()
-            
-    def close_scene(self):
-        if self.scene_name == "scene01":
-            pass
         
     def tick(self):
         self.traffic_controller.ego_vehicle.set_control(self.steering_v, self.acceleration_v)
@@ -304,19 +350,41 @@ class Scene(World):
         self.traffic_controller.tick()
         super().tick()
         
-    def tick_on_click(self, event):
-        self.tick()
-        
-    def print_traffic(self, event):
-        print(self.traffic_controller.traffic[['id', 'route', 'waypoint', 'front_vehicle_id']])
-        
-    def _get_observation(self):
+    def _goal_reached(self):
         if self.agent.lower() == 'vehicle':
-            agent = self.traffic_controller.ego_vehicle
+            return self._vehicle_goal_reached()
         elif self.agent.lower() == 'pedestrian':
-            agent = self.traffic_controller.ego_pedestrian
+            return self._pedestrian_goal_reached()
+        
+    def _vehicle_goal_reached(self):
+        return self.traffic_controller.ego_controller.vehicle_goal_reached
+   
+    def _pedestrian_goal_reached(self):
+        ego_p = self.traffic_controller.ego_pedestrian
+        xg, yg, _ = self.get_transform(ego_p.ego_route_index, 
+                                       ego_p.goal_waypoint, 
+                                       pedestrian=True)
+        p_ego = np.array([ego_p.x, ego_p.y])
+        p_goal = np.array([xg, yg])
+        
+        if np.linalg.norm(p_ego - p_goal) < 0.3:
+            return True
         else:
-            raise Exception('Unexpected agent type')
+            return False
+        
+        
+    def _get_observation(self, agent=None):
+        ag = agent if agent is not None else self.agent.lower()
+        if ag == 'vehicle':
+            agent = self.traffic_controller.ego_vehicle
+            routes = self.routes
+            wp = self.traffic_controller.ego_vehicle_current_waypoint
+        elif ag == 'pedestrian':
+            agent = self.traffic_controller.ego_pedestrian
+            routes = self.pedestrian_routes
+            wp = self.traffic_controller.current_ped_waypoint
+        else:
+            raise Exception('Unexptected agent')
         
         p_ego = np.array([agent.x, agent.y])
         
@@ -356,6 +424,8 @@ class Scene(World):
                         1.0, # distance to closest agent
                         ]
             else:
+                vx = a.speed * np.cos(a.heading) / self.speed_normalization_factor
+                vy = a.speed * np.sin(a.heading) / self.speed_normalization_factor
                 node = [#1.0,
                         a.x/self.width_m, 
                         a.y/self.height_m,
@@ -407,31 +477,28 @@ class Scene(World):
         elif self.obs_type == 'gcn_speed':
             obs = (self.graph, agent.speed)
         elif self.obs_type == 'gcn_speed_route':
-            wp = self.traffic_controller.ego_controller.current_waypoint_index
-            route = self.routes[agent.ego_route_index][wp:wp+10]
+            route = routes[agent.ego_route_index][wp:wp+10]
             obs = (self.graph, agent.speed, route)
         else:
             raise Exception('Unexpected observation type')
         
         return obs
     
-    
-    @property
-    def ego_vehicle(self):
-        return self.traffic_controller.ego_vehicle
-    
-    @property
-    def ego_pedestrian(self):
-        return self.traffic_controller.ego_pedestrian
-    
-    def _goal_reached(self):
-        return self.traffic_controller.ego_controller.goal_reached
-    
     def _test_reward_fn(self):
         info = {'end_reason': None}
         
         goal_reached = self._goal_reached()
-        collision = self.collision_exists(self.ego_vehicle)
+        
+        if self.agent.lower() == 'vehicle':
+            collision = self.collision_exists(self.ego_vehicle)
+            v = self.ego_vehicle.speed
+            speed_norm_factor = self.speed_limit
+        elif self.agent.lower() == 'pedestrian':
+            collision = self.collision_exists(self.ego_pedestrian)
+            v = self.ego_pedestrian.speed
+            speed_norm_factor = self.ped_speed_limit
+        else:
+            raise Exception(f'Unexpected agent {self.agent}')
         
         if self.t > self.timeout:
             done = True
@@ -448,13 +515,12 @@ class Scene(World):
         else:
             done = False
             
-            v = self.ego_vehicle.speed
-            if v < 0.8 * self.speed_limit:
-                r_velocity = 1.25 * (v / self.speed_limit)
-            elif v >= 0.8 * self.speed_limit and v < self.speed_limit:
+            if v < 0.8 * speed_norm_factor:
+                r_velocity = 1.25 * (v / speed_norm_factor)
+            elif v >= 0.8 * speed_norm_factor and v < speed_norm_factor:
                 r_velocity = 1.0
             else:
-                r_velocity = 6.0 - 5.0 * (v / self.speed_limit)
+                r_velocity = 6.0 - 5.0 * (v / speed_norm_factor)
             
             r_idle = -1.0 if (v < 5.0/3.6) else 0.0
             r_action = -np.abs(self.acceleration_v)
@@ -482,8 +548,6 @@ class Scene(World):
         return self._get_observation(), {'N_cars': N_cars}
         
     def step(self, action):
-        # action is the action for the trained agent
-        
         # Plot graph
         for x in self.graph_plot['nodes']:
             self.add(x)
@@ -502,15 +566,16 @@ class Scene(World):
             _, self.acceleration_v = self._action_discrete_to_continuous(action)
             self.steering_v, _, _ = self.traffic_controller.ego_controller.stanely_controller()
             
-            self.acceleration_p = self.level_0_pedestrian_AI()
+            _, self.acceleration_p = self.pedestrian_AI()
             self.steering_p = 0.0
             
         elif self.agent.lower() == 'pedestrian':
             _, self.acceleration_p = self._action_discrete_to_continuous(action)
             self.steering_p = 0.0
             
-            _, self.acceleration_v = (None, 0.1) # XXX LOAD NN FOR THIS
+            _, self.acceleration_v = self.vehicle_AI()
             self.steering_v, _, _ = self.traffic_controller.ego_controller.stanely_controller()
+        
         else:
             raise Exception('Unexpected agent type')
             
@@ -522,11 +587,101 @@ class Scene(World):
         self.episode_reward += reward
         return obs, reward, done, False, info
     
-    def _action_discrete_to_continuous(self, action):
-        if self.agent.lower() == 'vehicle':
+    def vehicle_AI(self):
+        if not self._vehicle_goal_reached():
+            if self.vehicle_level == 'L0':
+                return (None, 1.0)
+            else:
+                s = prepare_state_for_nn(self._get_observation(agent='vehicle'))
+                action = int(torch.argmax(self.vehicle_agent(s)))
+                return self._action_discrete_to_continuous(action, agent='vehicle')
+        else:
+            # self.traffic_controller.ego_vehicle.velocity = Point(0,0)
+            return (None, 0.0)
+        
+    def pedestrian_AI(self):
+        if not self._pedestrian_goal_reached():
+            if self.pedestrian_level == 'L0':
+                return self.level_0_pedestrian_AI()
+            else:
+                s = prepare_state_for_nn(self._get_observation(agent='pedestrian'))
+                action = int(torch.argmax(self.pedestrian_agent(s)))
+                return self._action_discrete_to_continuous(action, agent='pedestrian')
+        else:
+            return (None, 0.0)
+        
+    def level_0_pedestrian_AI(self):
+        if not self._pedestrian_goal_reached():
+            agent = self.traffic_controller.ego_pedestrian
+            p_ego = np.array([agent.x, agent.y])
+            
+            nearby_agents = []
+            
+            self.closest_vehicle_distance = self.detection_radius
+            
+            self.graph_plot = {}
+            self.graph_plot['nodes'] = []
+            self.graph_plot['edges'] = []
+            
+            # If there are close agents: don't move, else cross
+            if self.ped_ai_cross == -1:
+                for a in self.dynamic_agents:
+                    p_a = np.array([a.x, a.y])
+                    d_a_ego = np.linalg.norm(p_a - p_ego)
+                    if d_a_ego < 10.0 and a.collidable:
+                        nearby_agents.append(a)
+                if len(nearby_agents) > 1:
+                    self.ped_ai_cross = 1.0
+                else:
+                    self.ped_ai_cross = 0.0
+            return self.ped_ai_cross
+        else:
+            # Stop pedestrian if they reach their goal
+            # self.traffic_controller.ego_pedestrian.velocity = Point(0,0)
+            return 0.0
+    
+    ###############################################  
+    #           AUXILIARY METHODS                 #
+    ###############################################
+    def draw_route(self, route, color='green'):
+        for i in range(len(route)):
+            self.add(Painting(Point(route[i, 0], route[i, 1]), Point(0.5, 0.5), color))
+        
+    def print_traffic(self, event):
+        print(self.traffic_controller.traffic[['id', 'route', 'waypoint', 'front_vehicle_id']])
+             
+    def reset_rng(self, seed=None):
+        if self.testing:
+            if seed is None:
+                self.rng = np.random.RandomState(self.seed)
+            else:
+                self.rng = np.random.RandomState(seed)
+    
+    @property
+    def ego_vehicle(self):
+        return self.traffic_controller.ego_vehicle
+    
+    @property
+    def ego_pedestrian(self):
+        return self.traffic_controller.ego_pedestrian
+    
+    def get_transform(self, route_index, point=0, pedestrian=False):
+        if not pedestrian:
+            route = self.routes[route_index]
+        else:
+            route = self.pedestrian_routes[route_index]
+        x, y = route[point]
+        
+        forward_vector = route[point+1] - route[point]
+        heading = np.arctan2(forward_vector[1], forward_vector[0]) % (2*np.pi)
+        return x, y, heading
+
+    def _action_discrete_to_continuous(self, action, agent=None):
+        ag = agent if agent is not None else self.agent.lower()
+        if ag.lower() == 'vehicle':
             MAX_A = 3.0
-        elif self.agent.lower() == 'pedestrian':
-            MAX_A = 1.9
+        elif ag.lower() == 'pedestrian':
+            MAX_A = 1.0
         else:
             raise Exception(f'Unpexpected agent type: {self.agent.lower()}')
         
@@ -541,56 +696,4 @@ class Scene(World):
             accelerate = 0.0
         else:
             raise Exception("Unexpected action: {action}")
-        return steer, accelerate
-    
-    def get_transform(self, route_index, point=0, pedestrian=False):
-        if not pedestrian:
-            route = self.routes[route_index]
-        else:
-            route = self.pedestrian_routes[route_index]
-        x, y = route[point]
-        
-        forward_vector = route[point+1] - route[point]
-        heading = np.arctan2(forward_vector[1], forward_vector[0]) % (2*np.pi)
-        return x, y, heading
-    
-    def reset_rng(self, seed=None):
-        if self.testing:
-            if seed is None:
-                self.rng = np.random.RandomState(self.seed)
-            else:
-                self.rng = np.random.RandomState(seed)
-                
-                
-                
-        
-    def level_0_pedestrian_AI(self):
-        agent = self.traffic_controller.ego_pedestrian
-        p_ego = np.array([agent.x, agent.y])
-        
-        nearby_agents = []
-        
-        self.closest_vehicle_distance = self.detection_radius
-        
-        self.graph_plot = {}
-        self.graph_plot['nodes'] = []
-        self.graph_plot['edges'] = []
-        
-        # If there are close agents: don't move, else cross
-        if self.ped_ai_cross == -1:
-            for a in self.dynamic_agents:
-                p_a = np.array([a.x, a.y])
-                d_a_ego = np.linalg.norm(p_a - p_ego)
-                if d_a_ego < 10.0 and a.collidable:
-                    nearby_agents.append(a)
-            if len(nearby_agents) > 1:
-                self.ped_ai_cross = 1.0
-            else:
-                self.ped_ai_cross = 0.0
-        return self.ped_ai_cross
-        
-        
-        
-    
-    
-    
+        return steer, accelerate                

@@ -30,6 +30,12 @@ def parse():
                         help="Seed for random initialisation.")             
     parser.add_argument('--wandb', action="store_true", default=False,
                         help="Log run on wandb.")  
+    parser.add_argument('--agent', type=str, default="vehicle",
+                        help="Train vehicle or pedestrian")
+    parser.add_argument('--pedestrian_level', type=str, required=True)
+    parser.add_argument('--vehicle_level', type=str, required=True)
+    parser.add_argument('--pedestrian_agent_id', type=str, default=None)
+    parser.add_argument('--vehicle_agent_id', type=str, default=None)
     
     # Training hyperparameters
     parser.add_argument('--batch_size', type=int, default=32, 
@@ -66,21 +72,18 @@ def parse():
     return args
     
 def create_checkpoint_directory():
-    if not os.path.isdir("./checkpoint/"):
-        os.mkdir("./checkpoint/")
-    if not os.path.isdir(f"./checkpoint/{args.tag}/"):
-        os.mkdir(f"./checkpoint/{args.tag}")
+    level = args.vehicle_level if args.agent.lower() == 'vehicle' else args.pedestrian_level
+        
     for i in range(1000):
-        checkpoint_dir = f"./checkpoint/{args.tag}/{i:03d}/"
+        checkpoint_dir = f"./checkpoint/{args.tag}/{args.agent}/{level}/{i:03d}/"
         if not os.path.isdir(checkpoint_dir):
-            os.mkdir(checkpoint_dir)
+            os.makedirs(checkpoint_dir)
             return checkpoint_dir
     raise Exception("Unable to create checkpoint directory.")
     
 def save_args(checkpoint_dir, args): 
     with open(checkpoint_dir+'args.pkl', 'wb') as fp:
         pickle.dump(args, fp)
-
 
 if __name__ == "__main__":
     args = parse()
@@ -134,6 +137,14 @@ if __name__ == "__main__":
     
     set_seed(args.seed)
     
+    vehicle_path = None if args.vehicle_agent_id is None else \
+        f"./checkpoint/{args.tag}/vehicle/{args.vehicle_level}/{args.vehicle_agent_id}/reward_best.pth"
+    pedestrian_path = None if args.pedestrian_agent_id is None else \
+        f"./checkpoint/{args.tag}/pedestrian/{args.pedestrian_level}/{args.pedestrian_agent_id}/reward_best.pth"
+    
+    print(f"Vehicle agent path: {vehicle_path}")
+    print(f"Pedestrian agent path: {pedestrian_path}")
+    
     # ENVIRONMENT SETUP
     # The world is 120 meters by 120 meters. ppm is the pixels per meter.
     env = Scene(dt, 
@@ -145,9 +156,18 @@ if __name__ == "__main__":
                   discrete_actions=True,
                   window_name="Training Environment",
                   seed=args.seed,
-                  obs_type=args.policy_network,
                   reward_configuration=reward_configuration,
-                  agent=args.agent)
+                  agent=args.agent,
+                  
+                  vehicle_level=args.vehicle_level,
+                  pedestrian_level=args.pedestrian_level,
+                  hidden_features=args.hidden_features,
+                  obs_type=args.policy_network,
+                  gcn_conv_layer=args.gcn_conv_layer,
+                  n_conv_layers=args.n_conv_layers,
+                  path_to_vehicle_agent=vehicle_path,
+                  path_to_pedestrian_agent=pedestrian_path
+                  )
     env.load_scene("scene01")
     
     # test_env = Scene(dt, 
@@ -211,6 +231,7 @@ if __name__ == "__main__":
                     n_testing_episodes=config['N_TESTING_EPISODES'])
     finally:
         env.close()
-        test_env.close()
+        if test_env is not None:
+            test_env.close()
         wandb.finish()
     
