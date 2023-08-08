@@ -153,7 +153,7 @@ The traffic controller should be responsible for:
 """
     
 class TrafficController:
-    def __init__(self, world, ego_vehicle, rng, N_cars : int = 3):
+    def __init__(self, world, ego_vehicle, ego_pedestrian, rng, N_cars : int = 3):
         """
         Parameters
         ----------
@@ -173,7 +173,11 @@ class TrafficController:
         self.rng = rng
         
         self.ego_vehicle = ego_vehicle
+        self.ego_pedestrian = ego_pedestrian
+        
         self.add_ego_vehicle(self.ego_vehicle)
+        self.add_ego_pedestrian(self.ego_pedestrian)
+        
         self.ego_controller = CarController(self.world.routes[self.ego_vehicle.ego_route_index], 
                                             self.ego_vehicle,
                                             self.rng,
@@ -191,7 +195,7 @@ class TrafficController:
     def tick(self):
         for index, row in self.traffic.iterrows():
             # Update all non-ego vehicles positions
-            if row['id'] != self.ego_vehicle.id: 
+            if row['id'] != self.ego_vehicle.id and row['id'] != self.ego_pedestrian.id: 
                 steering, acceleration, end_of_route = row['controller'].stanely_controller(row['front_vehicle'])
                 self.traffic.loc[index, 'vehicle'].set_control(steering, acceleration)
                 self.traffic.loc[index, 'waypoint'] = int(row['controller'].current_waypoint_index)
@@ -226,6 +230,24 @@ class TrafficController:
         else:
             self.traffic.at[self.ego_index, 'route'] = None
             self.traffic.at[self.ego_index, 'waypoint'] = None
+            
+        # Update ego_pedestrian route   
+        x = self.ego_pedestrian.center.x
+        y = self.ego_pedestrian.center.y
+        d1 = np.abs(y - self.world.routes[0][0,1])
+        d2 = np.abs(y - self.world.routes[1][0,1])
+        if d1 < 2.9:
+            self.traffic.at[self.ego_pedestrian_index, 'route'] = 0
+            waypoint = np.argmin(np.linalg.norm(self.world.routes[0] - np.array([x,y]), axis=1))
+            self.traffic.at[self.ego_pedestrian_index, 'waypoint'] = waypoint
+        elif d2 < 2.9:
+            self.traffic.at[self.ego_pedestrian_index, 'route'] = 1
+            waypoint = np.argmin(np.linalg.norm(self.world.routes[1] - np.array([x,y]), axis=1))
+            self.traffic.at[self.ego_pedestrian_index, 'waypoint'] = waypoint
+        else:
+            self.traffic.at[self.ego_pedestrian_index, 'route'] = None
+            self.traffic.at[self.ego_pedestrian_index, 'waypoint'] = None 
+        
         ######################################################################
         self.traffic.reset_index()
         self.update_front_vehicles()
@@ -233,6 +255,10 @@ class TrafficController:
     @property
     def ego_index(self):
         return self.traffic[self.traffic['id'] == self.ego_vehicle.id].index[0]
+    
+    @property
+    def ego_pedestrian_index(self):
+        return self.traffic[self.traffic['id'] == self.ego_pedestrian.id].index[0]
             
     def spawn_car(self, route_index, random_point=False):
         if random_point:
@@ -289,6 +315,29 @@ class TrafficController:
                                      ignore_index=True)
         else:
             raise Exception("Tried to spawn car agent but collision existed")
+        
+    def add_ego_pedestrian(self, ego_pedestrian):
+        self.ego_pedestrian.id = -2
+        
+        if not self.world.collision_exists(ego_pedestrian):
+            self.world.add(ego_pedestrian)
+            ego_route = ego_pedestrian.ego_route_index
+            traffic_agent = {
+                    'id': [ego_pedestrian.id],
+                    'route': [ego_route],
+                    'vehicle': [ego_pedestrian],
+                    'controller': [None],
+                    'waypoint': [None],
+                    'front_vehicle': [None],
+                    'front_vehicle_id': [None]
+                }
+            da = pd.DataFrame(traffic_agent)
+            
+            # Add agent to the traffic list
+            self.traffic = pd.concat((self.traffic, da),
+                                     ignore_index=True)
+        else:
+            raise Exception("Tried to spawn pedestrian agent but collision existed")
     
     def update_front_vehicles(self, max_range=30):
         for index, row in self.traffic.iterrows():

@@ -146,7 +146,8 @@ if __name__ == "__main__":
                   window_name="Training Environment",
                   seed=args.seed,
                   obs_type=args.policy_network,
-                  reward_configuration=reward_configuration)
+                  reward_configuration=reward_configuration,
+                  agent=args.agent)
     env.load_scene("scene01")
     
     # test_env = Scene(dt, 

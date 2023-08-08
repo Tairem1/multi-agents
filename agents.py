@@ -43,12 +43,20 @@ class EgoVehicle(Car):
         
 class Pedestrian(CircleEntity):
     def __init__(self, center: Point, heading: float, color: str = 'LightSalmon3'): # after careful consideration, I decided my color is the same as a salmon, so here we go.
-        radius = 0.5
+        radius = 1.0
         movable = True
         friction = 0.2
         super(Pedestrian, self).__init__(center, heading, radius, movable, friction)
         self.color = color
         self.collidable = True
+        
+class EgoPedestrian(Pedestrian):
+    def __init__(self, center, heading, velocity,
+                 ego_route_index, initial_waypoint, goal_waypoint):
+        super(EgoPedestrian, self).__init__(center, heading, color='orange')
+        self.ego_route_index = ego_route_index
+        self.initial_waypoint = initial_waypoint
+        self.goal_waypoint = goal_waypoint
         
 class RectangleBuilding(RectangleEntity):
     def __init__(self, center: Point, size: Point, color: str = 'gray26'):
@@ -57,7 +65,7 @@ class RectangleBuilding(RectangleEntity):
         friction = 0.
         super(RectangleBuilding, self).__init__(center, heading, size, movable, friction)
         self.color = color
-        self.collidable = True
+        self.collidable = False
         
 class CircleBuilding(CircleEntity):
     def __init__(self, center: Point, radius: float, color: str = 'gray26'):
