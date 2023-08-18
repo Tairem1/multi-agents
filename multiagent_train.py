@@ -32,10 +32,12 @@ def parse():
                         help="Log run on wandb.")  
     parser.add_argument('--agent', type=str, default="vehicle",
                         help="Train vehicle or pedestrian")
-    parser.add_argument('--pedestrian_level', type=str, required=True)
-    parser.add_argument('--vehicle_level', type=str, required=True)
+    parser.add_argument('--pedestrian_level', type=str, required=False)
+    parser.add_argument('--vehicle_level', type=str, required=False)
     parser.add_argument('--pedestrian_agent_id', type=str, default=None)
     parser.add_argument('--vehicle_agent_id', type=str, default=None)
+    parser.add_argument('--svo', type=float, 
+                        help="Social Value Orientation value in degrees [°].")
     
     # Training hyperparameters
     parser.add_argument('--batch_size', type=int, default=32, 
@@ -75,7 +77,12 @@ def create_checkpoint_directory():
     level = args.vehicle_level if args.agent.lower() == 'vehicle' else args.pedestrian_level
         
     for i in range(1000):
-        checkpoint_dir = f"./checkpoint/{args.tag}/{args.agent}/{level}/{i:03d}/"
+        if 'svo' in args and args.svo is not None:
+                base_dir = f"./checkpoint/{args.tag}/{int(args.svo)}/"
+        else:
+            base_dir = f"./checkpoint/{args.tag}/"
+            
+        checkpoint_dir = base_dir + f'{args.agent}/{level}/{i:03d}/'    
         if not os.path.isdir(checkpoint_dir):
             os.makedirs(checkpoint_dir)
             return checkpoint_dir
@@ -88,6 +95,7 @@ def save_args(checkpoint_dir, args):
 if __name__ == "__main__":
     args = parse()
     checkpoint_dir = create_checkpoint_directory()
+    svo = args.svo if args.svo is not None else 0
     
     reward_configuration = {
             'timeout': args.reward_parameters[0],
@@ -109,7 +117,7 @@ if __name__ == "__main__":
         'EPS_END': 0.05,
         'EPS_DECAY': int(2*args.total_timesteps/4),
         'TOTAL_TIMESTEPS': args.total_timesteps,
-        'TEST_EVERY': args.total_timesteps//20,
+        'TEST_EVERY': args.total_timesteps//5,
         'REPLAY_BUFFER_SIZE': args.replay_buffer_size,
         'LR': args.learning_rate,
         'NETWORK_UPDATE_FREQUENCY': args.network_update_frequency,
@@ -122,6 +130,10 @@ if __name__ == "__main__":
         'REWARD': reward_configuration,
         'GCN_CONV_LAYER': args.gcn_conv_layer,
         'N_CONV_LAYERS': args.n_conv_layers,
+        'AGENT': args.agent,
+        'PEDESTRIAN_LEVEL': args.pedestrian_level,
+        'VEHICLE_LEVEL': args.vehicle_level,
+        'SVO': svo,
         'dt': dt
         }
     
@@ -137,11 +149,17 @@ if __name__ == "__main__":
     
     set_seed(args.seed)
     
-    vehicle_path = None if args.vehicle_agent_id is None else \
-        f"./checkpoint/{args.tag}/vehicle/{args.vehicle_level}/{args.vehicle_agent_id}/reward_best.pth"
-    pedestrian_path = None if args.pedestrian_agent_id is None else \
-        f"./checkpoint/{args.tag}/pedestrian/{args.pedestrian_level}/{args.pedestrian_agent_id}/reward_best.pth"
-    
+    if args.tag != 'svo':
+        vehicle_path = None if args.vehicle_agent_id is None else \
+            f"./checkpoint/{args.tag}/vehicle/{args.vehicle_level}/{args.vehicle_agent_id}/reward_best.pth"
+        pedestrian_path = None if args.pedestrian_agent_id is None else \
+            f"./checkpoint/{args.tag}/pedestrian/{args.pedestrian_level}/{args.pedestrian_agent_id}/reward_best.pth"
+    else:
+        vehicle_path = None if args.vehicle_agent_id is None else \
+            f"./checkpoint/{args.tag}/{int(svo)}/vehicle/{args.vehicle_level}/{args.vehicle_agent_id}/reward_best.pth"
+        pedestrian_path = None if args.pedestrian_agent_id is None else \
+            f"./checkpoint/{args.tag}/{int(svo)}/pedestrian/{args.pedestrian_level}/{args.pedestrian_agent_id}/reward_best.pth"
+        
     print(f"Vehicle agent path: {vehicle_path}")
     print(f"Pedestrian agent path: {pedestrian_path}")
     
@@ -166,7 +184,8 @@ if __name__ == "__main__":
                   gcn_conv_layer=args.gcn_conv_layer,
                   n_conv_layers=args.n_conv_layers,
                   path_to_vehicle_agent=vehicle_path,
-                  path_to_pedestrian_agent=pedestrian_path
+                  path_to_pedestrian_agent=pedestrian_path,
+                  svo=svo
                   )
     env.load_scene("scene01")
     

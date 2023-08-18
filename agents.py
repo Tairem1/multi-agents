@@ -23,6 +23,7 @@ class Car(RectangleEntity):
             Car.car_counter += 1
         else:
             self.id = -1
+        self.max_speed = 80.0 / 3.6
     
     @property
     def front_axle(self):
@@ -49,6 +50,7 @@ class Pedestrian(CircleEntity):
         super(Pedestrian, self).__init__(center, heading, radius, movable, friction)
         self.color = color
         self.collidable = True
+        self.max_speed = 3.0
         
 class EgoPedestrian(Pedestrian):
     def __init__(self, center, heading, velocity,

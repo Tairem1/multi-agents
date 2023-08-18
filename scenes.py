@@ -55,6 +55,7 @@ class Scene(World):
                  obs_type='gcn',
                  adjacency_norm='ones',
                  reward_configuration=None,
+                 svo = 0, # expressed in degrees
                  agent='vehicle',
                  vehicle_level='L0',
                  pedestrian_level='L0',
@@ -69,6 +70,7 @@ class Scene(World):
         self.routes = []
         self.pedestrian_routes = []
         self.reward_fn = self._test_reward_fn if reward_fn is None else reward_fn
+        self.svo = svo * np.pi/180.0
         self._render = render
         
         self._discrete_actions = discrete_actions
@@ -329,7 +331,6 @@ class Scene(World):
                                             ego_route_index=route_index, 
                                             initial_waypoint = initial_waypoint,
                                             goal_waypoint=goal_waypoint)
-            ego_pedestrian.max_speed = 2.5
     
             self.traffic_controller = TrafficController(self, 
                                                         ego_vehicle,
@@ -484,6 +485,33 @@ class Scene(World):
         
         return obs
     
+    def _reward_others(self):
+        if self.agent.lower() == 'vehicle':
+            agent = self.traffic_controller.ego_vehicle
+        elif self.agent.lower() == 'pedestrian':
+            agent = self.traffic_controller.ego_pedestrian
+        else:
+            raise Exception('Unexptected agent')
+        
+        p_ego = np.array([agent.x, agent.y])
+        
+        nearby_agents = []
+        for a in self.dynamic_agents:
+            p_a = np.array([a.x, a.y])
+            d_a_ego = np.linalg.norm(p_a - p_ego)
+            if d_a_ego < self.detection_radius and a.collidable:
+                if a is not agent:
+                    self.closest_vehicle_distance = d_a_ego
+                    nearby_agents.append(a)
+                
+        r_others = 0.0
+        for a in nearby_agents:
+            p_a = np.array([a.x, a.y])
+            d_a_ego = np.linalg.norm(p_a - p_ego)
+            r_others += a.speed/a.max_speed * (1.0/d_a_ego)
+        return r_others
+            
+    
     def _test_reward_fn(self):
         info = {'end_reason': None}
         
@@ -515,6 +543,8 @@ class Scene(World):
         else:
             done = False
             
+            r_others = self._reward_others()
+            
             if v < 0.8 * speed_norm_factor:
                 r_velocity = 1.25 * (v / speed_norm_factor)
             elif v >= 0.8 * speed_norm_factor and v < speed_norm_factor:
@@ -533,7 +563,9 @@ class Scene(World):
             
             # print(f"Reward: v {r_velocity:.4f}, a {r_action:.4f}, idle: {r_idle:.4f}, proximity: {r_proximity:.4f}")
             
-            reward = r_velocity + r_action + r_idle + r_proximity
+            r_self = r_velocity + r_action + r_idle + r_proximity
+            reward = np.cos(self.svo) * r_self + np.sin(self.svo) * r_others
+            # print(f"reward: {reward:.4f}, r_self: {r_self:.4f}, r_others: {r_others:.4f}")
             
         return reward, done, info
       
@@ -634,11 +666,11 @@ class Scene(World):
                     self.ped_ai_cross = 1.0
                 else:
                     self.ped_ai_cross = 0.0
-            return self.ped_ai_cross
+            return (None, self.ped_ai_cross)
         else:
             # Stop pedestrian if they reach their goal
             # self.traffic_controller.ego_pedestrian.velocity = Point(0,0)
-            return 0.0
+            return (None, 0.0)
     
     ###############################################  
     #           AUXILIARY METHODS                 #
